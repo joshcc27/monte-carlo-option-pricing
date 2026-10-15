@@ -23,14 +23,14 @@ src/
     asian_geometric.py          # Closed-form geometric Asian pricing (CV control)
     rng.py                      # RNG wrapper (pseudo-random) and QMCGenerator (Sobol)
 tests/                          # Pytest suite covering analytics, convergence, Greeks, VR
-requirements.txt                # Python dependencies
-pyproject.toml                  # Build config and optional dev dependencies
+pyproject.toml                  # Build config and dependencies
+uv.lock                         # Locked dependency versions
 ```
 
 ## Requirements
 
 - Python 3.10+
-- Install dependencies: `pip install -r requirements.txt`
+- Install dependencies: `uv sync --extra dev`
 
 ## Running the web UI
 
