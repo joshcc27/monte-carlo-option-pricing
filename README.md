@@ -1,0 +1,124 @@
+# Monte Carlo option pricer
+
+I wrote this library and Streamlit app to price European, arithmetic Asian, and barrier options by Monte Carlo under Black-Scholes assumptions. Every estimator is checked against a closed-form price.
+
+The parts that took the most care:
+
+- **Greeks two ways.** Pathwise derivatives, and finite differences with common random numbers, both compared with Black-Scholes.
+- **Antithetic sampling.** The standard error comes from pair means, because the two paths in a pair aren't independent.
+- **A control variate for the Asian option.** The geometric Asian has an exact price, so it makes a strong control for the arithmetic one.
+- **Sobol sampling.** An optional Brownian-bridge construction, with error measured across independent scrambles.
+- **Barrier options.** These are monitored at discrete dates, with an optional Broadie-Glasserman-Kou correction to approximate continuous monitoring.
+
+![Standard error and variance reduction factor for an arithmetic Asian call](docs/asian_variance_reduction.png)
+
+## Results
+
+All numbers come from the committed notebooks and script and are reproducible with the seeds they set.
+
+| Experiment | Result |
+| --- | --- |
+| Arithmetic Asian call, 64 dates, S0=100, K=95, r=1.5%, σ=25%, T=1 | Control variate cuts variance by a factor of about 1,080 (standard error 33 times smaller); antithetic by 2.5 |
+| Same contract, paths for a 95% half-width of one cent | Plain 4.8 million, antithetic 1.9 million, control variate 4,000 |
+| European call and put, N from 10³ to 3×10⁶ | RMSE slope −0.48 and −0.49 against log N, on the σ/√N line; no detectable bias |
+| 95% CI coverage over 2,000 runs, at-the-money call | 94.6% to 95.4% at N = 100, 1,000 and 10,000 |
+| 95% CI coverage, K=160 call (price 0.44) | 75.7% at N = 100, 92.6% at N = 1,000, 94.7% at N = 10,000 |
+| Down-and-out call, K=100, H=90, 52 monitoring dates | Discrete price 0.52 above the continuous closed form (8.6655); 0.02 above with the BGK correction (stderr 0.023) |
+
+Sources: [notebooks/02](notebooks/02_asian_variance_reduction_benchmark.ipynb) for the Asian rows, [notebooks/01](notebooks/01_european_monte_carlo_convergence.ipynb) for the European rows, and [scripts/barrier_continuity_correction.py](scripts/barrier_continuity_correction.py) for the barrier row.
+
+## Quick start
+
+Requires Python 3.11 or later and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync --extra dev                   # create .venv with the package and dev tools
+uv run pytest                         # 101 tests, about 10 seconds
+uv run streamlit run app.py           # web app at http://localhost:8501
+uv run python scripts/barrier_continuity_correction.py
+```
+
+To re-run a notebook top to bottom:
+
+```bash
+uv run jupyter nbconvert --to notebook --execute --inplace notebooks/02_asian_variance_reduction_benchmark.ipynb
+```
+
+## Streamlit app
+
+| Page | What it does |
+| --- | --- |
+| Pricer | Prices a European, arithmetic Asian or barrier option with plain, antithetic or (Asian only) control-variate sampling. Shows the payoff histogram, the Black-Scholes price for Europeans and the continuous closed form for down-and-out calls. |
+| Greeks | Delta, vega, gamma, theta and rho of a European option by Monte Carlo, against Black-Scholes, with 95% error bars. |
+| Convergence | RMSE against path count (powers of two) for pseudo-random, Sobol and Sobol with Brownian bridge, over several seeds or scrambles. |
+| Variance Reduction | Standard error and variance reduction factor of plain, antithetic and control-variate estimators for an arithmetic Asian call. |
+| Binomial | CRR tree price of a European option and its convergence to Black-Scholes. |
+
+
+## Library usage
+
+```python
+from mc_pricer import RNG, bs_price, mc_price_asian_arithmetic_cv, mc_price_european, simulate_gbm_paths
+
+S0, K, r, T, sigma = 100.0, 105.0, 0.02, 1.0, 0.2
+paths = simulate_gbm_paths(S0, r, sigma, T, steps=1, n_paths=200_000, rng=RNG(seed=42))
+print(mc_price_european(paths[:, -1], K, r, T, "call"))   # price, stderr, ci_low, ci_high, ...
+print(bs_price(S0, K, T, r, sigma, "call"))
+
+print(mc_price_asian_arithmetic_cv(S0, K, r, T, sigma, 64, 100_000, RNG(seed=1), "call"))
+```
+
+Every pricer returns the same dictionary: `price`, `stderr`, `ci_low`, `ci_high`, `n_paths` and `extra`. Argument order is not uniform across functions (`bs_price` takes `T, r`, the Monte Carlo pricers take `r, T`), so keyword arguments are safer.
+
+## Methods
+
+GBM is simulated in log space, so values on the time grid are exact for any step size. European payoffs therefore need only one step.
+
+The pathwise Greeks differentiate the payoff along each path, using dS_T/dS0 = S_T/S0 for delta and dS_T/dσ for vega. The finite-difference Greeks reuse the same shocks for the bumped runs (common random numbers). Gamma, theta and rho are finite differences only. The gamma standard error grows like h^(-1/2) as the bump h shrinks, and a test checks this.
+
+Antithetic shocks are drawn as [Z, −Z], and the standard error is computed over the N/2 pair means.
+
+For prices observed at t_1, ..., t_n, the log of the geometric average is normal with mean log S0 + (r − σ²/2)·mean(t) and variance σ²/n² · Σ_i Σ_j min(t_i, t_j). With one date this reduces to Black-Scholes, which a test checks. The control-variate coefficient b = Cov(X, Y)/Var(Y) is fitted on the same paths.
+
+Sobol points are scrambled and mapped to normals by the inverse CDF. With the Brownian bridge, the first coordinate sets W(T), the second W(T/2), and so on, so the best-distributed coordinates carry most of the path variance.
+
+Barriers are checked on the simulated dates only. The BGK correction moves the barrier towards spot by a factor exp(0.5826·σ·√Δt). Barriers on the wrong side of spot are rejected.
+
+The Cox-Ross-Rubinstein tree uses u = exp(σ√Δt) and raises an error when exp(rΔt) falls outside (d, u), where the risk-neutral probability would leave [0, 1].
+
+## Limitations
+
+- Barrier monitoring is discrete. Without the correction you get the price of a contract checked only on the simulated dates. The BGK correction reduces the error to a smaller order than √Δt, but it assumes equally spaced dates.
+- Greeks are for European options only. There are no Greeks for Asian or barrier options, where pathwise derivatives of the barrier indicator would need likelihood-ratio or smoothing methods.
+- The binomial tree prices European exercise only. Nothing in the project handles American or Bermudan exercise.
+- The standard error the pricers print assumes independent samples, so it means nothing for Sobol paths. Use the spread over several scrambles instead, as the Convergence page does. Sobol also needs path counts that are powers of two. Without the Brownian bridge, its advantage fades as the number of time steps grows.
+- The model is Black-Scholes with constant rate and volatility and no dividends.
+
+## Repository layout
+
+```text
+app.py                         Streamlit landing page
+pages/                         Streamlit pages (Pricer, Greeks, Convergence, Variance Reduction, Binomial)
+src/mc_pricer/
+    asian_geometric.py         Closed-form geometric Asian price (control variate mean)
+    binomial.py                CRR binomial tree, European exercise
+    bs_analytics.py            Black-Scholes price and Greeks; continuous down-and-out call
+    gbm.py                     GBM path simulation
+    greeks.py                  Monte Carlo European Greeks, pathwise and finite difference
+    mc.py                      Plain Monte Carlo pricers (European, Asian, barrier)
+    mc_results.py              Result dictionary, discounting, i.i.d. and pair-mean stderr
+    payoffs.py                 Payoffs, barrier validation, BGK barrier shift
+    rng.py                     Pseudo-random and Sobol generators, Brownian bridge
+    validation.py              Input checks
+    variance_reduction.py      Antithetic and control-variate pricers
+notebooks/
+    01_european_monte_carlo_convergence.ipynb    Convergence rate, bias check, CI coverage
+    02_asian_variance_reduction_benchmark.ipynb  Plain vs antithetic vs control variate
+scripts/barrier_continuity_correction.py         Discrete vs continuous barrier table
+docs/                          Figures produced by the notebooks
+tests/                         pytest suite
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
