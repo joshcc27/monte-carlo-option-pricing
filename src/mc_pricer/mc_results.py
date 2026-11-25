@@ -14,17 +14,17 @@ from scipy.stats import norm
 Z_95 = norm.ppf(0.975)  # 95% normal quantile
 
 
-def discount_payoffs(payoffs, r, T):
+def discount_payoffs(payoffs, T, r):
     """Discount pathwise payoffs from maturity to valuation time.
 
     Parameters
     ----------
     payoffs : array-like
         Pathwise payoff values at maturity.
-    r : float
-        Continuously compounded risk-free rate.
     T : float
         Time to maturity in years.
+    r : float
+        Continuously compounded risk-free rate.
 
     Returns
     -------

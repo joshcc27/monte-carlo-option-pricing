@@ -37,53 +37,55 @@ def _antithetic_shocks(rng, n_paths, steps):
     return np.concatenate([z_half, -z_half], axis=0)
 
 
-def simulate_gbm_paths_antithetic(S0, r, sigma, T, steps, n_paths, rng):
+def simulate_gbm_paths_antithetic(S0, T, r, sigma, *, steps, n_paths, rng):
     """Simulate GBM paths from antithetic shocks.
 
     Returns a matrix of shape ``(n_paths, steps + 1)``. Row ``i`` and row
     ``i + n_paths // 2`` are an antithetic pair. ``n_paths`` must be even.
     """
     shocks = _antithetic_shocks(rng, n_paths, steps)
-    return simulate_gbm_paths(S0, r, sigma, T, steps, n_paths, shocks=shocks)
+    return simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, shocks=shocks)
 
 
-def mc_price_european_antithetic(S0, K, r, T, sigma, steps, n_paths, rng, option_type):
+def mc_price_european_antithetic(S0, K, T, r, sigma, *, steps, n_paths, rng, option_type):
     """Price a European option with antithetic sampling.
 
     ``n_paths`` counts both members of each pair and must be even. The
     standard error is computed from pair means.
     """
-    paths = simulate_gbm_paths_antithetic(S0, r, sigma, T, steps, n_paths, rng)
+    paths = simulate_gbm_paths_antithetic(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
     payoffs = european_payoff(paths[:, -1], K, option_type)
-    discounted = discount_payoffs(payoffs, r, T)
+    discounted = discount_payoffs(payoffs, T, r)
     return build_result_antithetic(discounted, extra={"variance_reduction": "antithetic"})
 
 
-def mc_price_asian_arithmetic_antithetic(S0, K, r, T, sigma, steps, n_paths, rng, option_type):
+def mc_price_asian_arithmetic_antithetic(
+    S0, K, T, r, sigma, *, steps, n_paths, rng, option_type
+):
     """Price an arithmetic-average Asian option with antithetic sampling.
 
     ``n_paths`` counts both members of each pair and must be even. The
     standard error is computed from pair means.
     """
-    paths = simulate_gbm_paths_antithetic(S0, r, sigma, T, steps, n_paths, rng)
+    paths = simulate_gbm_paths_antithetic(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
     payoffs = asian_arithmetic_payoff(paths, K, option_type)
-    discounted = discount_payoffs(payoffs, r, T)
+    discounted = discount_payoffs(payoffs, T, r)
     return build_result_antithetic(discounted, extra={"variance_reduction": "antithetic"})
 
 
 def mc_price_barrier_antithetic(
     S0,
     K,
-    r,
+    barrier,
     T,
+    r,
     sigma,
+    *,
+    barrier_type,
     steps,
     n_paths,
     rng,
-    barrier,
-    barrier_type,
     option_type,
-    *,
     continuity_correction=False,
 ):
     """Price a discretely monitored barrier option with antithetic sampling.
@@ -94,11 +96,17 @@ def mc_price_barrier_antithetic(
     vanilla option.
     """
     level = barrier_level_for_simulation(
-        S0, barrier, barrier_type, T, steps, sigma, continuity_correction
+        S0,
+        barrier,
+        T,
+        sigma,
+        barrier_type=barrier_type,
+        steps=steps,
+        continuity_correction=continuity_correction,
     )
-    paths = simulate_gbm_paths_antithetic(S0, r, sigma, T, steps, n_paths, rng)
+    paths = simulate_gbm_paths_antithetic(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
     payoffs = barrier_payoff(paths, K, level, barrier_type, option_type)
-    discounted = discount_payoffs(payoffs, r, T)
+    discounted = discount_payoffs(payoffs, T, r)
     return build_result_antithetic(
         discounted, extra={"variance_reduction": "antithetic", "barrier_used": float(level)}
     )
@@ -156,7 +164,7 @@ def control_variate(X, Y, EY):
     return float(adjusted.mean()), float(stderr), float(b)
 
 
-def mc_price_asian_arithmetic_cv(S0, K, r, T, sigma, steps, n_paths, rng, option_type):
+def mc_price_asian_arithmetic_cv(S0, K, T, r, sigma, *, steps, n_paths, rng, option_type):
     """Price an arithmetic Asian option with the geometric Asian as control variate.
 
     The geometric and arithmetic averages of the same path are highly
@@ -171,11 +179,11 @@ def mc_price_asian_arithmetic_cv(S0, K, r, T, sigma, steps, n_paths, rng, option
         fitted ``b``) and ``geo_asian_price`` (the closed-form control mean).
     """
     option_type = normalise_option_type(option_type)
-    paths = simulate_gbm_paths(S0, r, sigma, T, steps, n_paths, rng=rng)
+    paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
 
-    target = discount_payoffs(asian_arithmetic_payoff(paths, K, option_type), r, T)
-    control = discount_payoffs(asian_geometric_payoff(paths, K, option_type), r, T)
-    geo_price = price_geometric_asian(S0, K, r, sigma, T, steps, option_type)
+    target = discount_payoffs(asian_arithmetic_payoff(paths, K, option_type), T, r)
+    control = discount_payoffs(asian_geometric_payoff(paths, K, option_type), T, r)
+    geo_price = price_geometric_asian(S0, K, T, r, sigma, steps=steps, option_type=option_type)
 
     adjusted, b = _control_variate_samples(target, control, geo_price)
     return build_result_iid(

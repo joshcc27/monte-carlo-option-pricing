@@ -14,17 +14,17 @@ import numpy as np
 from .validation import normalise_option_type, validate_positive, validate_positive_int
 
 
-def price_binomial(S0, K, r, T, sigma, steps, option_type="call"):
+def price_binomial(S0, K, T, r, sigma, *, steps, option_type="call"):
     """Return the CRR binomial price of a European call or put.
 
     Parameters
     ----------
     S0, K : float
         Spot and strike.
-    r : float
-        Continuously compounded risk-free rate.
     T : float
         Maturity in years.
+    r : float
+        Continuously compounded risk-free rate.
     sigma : float
         Volatility (annualised, decimal).
     steps : int

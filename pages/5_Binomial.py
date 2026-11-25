@@ -27,9 +27,9 @@ with st.sidebar:
 st.caption("European exercise only. There is no early-exercise (American) check.")
 
 if st.button("Price"):
-    bs_ref = bs_price(S0, K, T, r, sigma, option_type)
+    bs_ref = bs_price(S0, K, T, r, sigma, option_type=option_type)
     try:
-        binom_price = price_binomial(S0, K, r, T, sigma, steps=steps, option_type=option_type)
+        binom_price = price_binomial(S0, K, T, r, sigma, steps=steps, option_type=option_type)
     except ValueError as exc:
         st.error(str(exc))
         st.stop()
@@ -43,7 +43,7 @@ if st.button("Price"):
     step_counts, prices, skipped = [], [], []
     for n in np.unique(np.logspace(1, 3, 30).astype(int)):
         try:
-            prices.append(price_binomial(S0, K, r, T, sigma, steps=int(n), option_type=option_type))
+            prices.append(price_binomial(S0, K, T, r, sigma, steps=int(n), option_type=option_type))
             step_counts.append(int(n))
         except ValueError:
             skipped.append(int(n))

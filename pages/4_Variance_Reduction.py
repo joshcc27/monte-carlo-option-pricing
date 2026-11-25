@@ -35,13 +35,31 @@ st.caption(
 
 if st.button("Run benchmark"):
     with st.spinner("Running three estimators..."):
-        paths = simulate_gbm_paths(S0, r, sigma, T, steps, n_paths, rng=RNG(seed=int(seed)))
-        plain = mc_price_asian_arithmetic(paths, K, r, T, "call")
+        paths = simulate_gbm_paths(
+            S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=RNG(seed=int(seed))
+        )
+        plain = mc_price_asian_arithmetic(paths, K, T, r, option_type="call")
         anti = mc_price_asian_arithmetic_antithetic(
-            S0, K, r, T, sigma, steps, n_paths, RNG(seed=int(seed)), "call"
+            S0,
+            K,
+            T,
+            r,
+            sigma,
+            steps=steps,
+            n_paths=n_paths,
+            rng=RNG(seed=int(seed)),
+            option_type="call",
         )
         cv = mc_price_asian_arithmetic_cv(
-            S0, K, r, T, sigma, steps, n_paths, RNG(seed=int(seed)), "call"
+            S0,
+            K,
+            T,
+            r,
+            sigma,
+            steps=steps,
+            n_paths=n_paths,
+            rng=RNG(seed=int(seed)),
+            option_type="call",
         )
 
     methods = ["Plain MC", "Antithetic", "Control variate"]

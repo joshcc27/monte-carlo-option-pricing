@@ -21,22 +21,20 @@ def test_antithetic_european_stderr_uses_pair_means(european_market, make_rng):
 
     rng_for_wrapper = make_rng(123)
     result = mc_price_european_antithetic(
-        params["S0"],
-        params["K"],
-        params["r"],
-        params["T"],
-        params["sigma"],
-        steps,
-        n_paths,
-        rng_for_wrapper,
-        "call",
+        **params, steps=steps, n_paths=n_paths, rng=rng_for_wrapper, option_type="call"
     )
 
     # Recreate the same antithetic sample manually and compute paired stderr
     # directly to confirm implementation-level correctness.
     rng_for_manual = make_rng(123)
     paths = simulate_gbm_paths_antithetic(
-        params["S0"], params["r"], params["sigma"], params["T"], steps, n_paths, rng_for_manual
+        S0=params["S0"],
+        T=params["T"],
+        r=params["r"],
+        sigma=params["sigma"],
+        steps=steps,
+        n_paths=n_paths,
+        rng=rng_for_manual,
     )
     ST = paths[:, -1]
     discounted = np.exp(-params["r"] * params["T"]) * european_payoff(ST, params["K"], "call")
@@ -56,9 +54,11 @@ def test_antithetic_reduces_stderr_for_european_call(european_market, make_rng):
 
     p = european_market
     n_paths = 100_000
-    paths = simulate_gbm_paths(p["S0"], p["r"], p["sigma"], p["T"], 1, n_paths, rng=make_rng(1))
-    plain = mc_price_european(paths[:, -1], p["K"], p["r"], p["T"], "call")
+    paths = simulate_gbm_paths(
+        S0=p["S0"], T=p["T"], r=p["r"], sigma=p["sigma"], steps=1, n_paths=n_paths, rng=make_rng(1)
+    )
+    plain = mc_price_european(paths[:, -1], K=p["K"], T=p["T"], r=p["r"], option_type="call")
     anti = mc_price_european_antithetic(
-        p["S0"], p["K"], p["r"], p["T"], p["sigma"], 1, n_paths, make_rng(2), "call"
+        **p, steps=1, n_paths=n_paths, rng=make_rng(2), option_type="call"
     )
     assert anti["stderr"] < plain["stderr"]

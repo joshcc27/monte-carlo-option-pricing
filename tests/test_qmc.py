@@ -31,21 +31,25 @@ def test_qmc_generator_rejects_wrong_dim():
 
 def test_qmc_reduces_pricing_error_vs_mc():
     # RMSE over 15 scrambles vs RMSE over 15 pseudo-random seeds, same N.
-    S0, K, r, T, sigma = 100.0, 100.0, 0.02, 1.0, 0.2
+    S0, K, T, r, sigma = 100.0, 100.0, 1.0, 0.02, 0.2
     steps = 64
     n_paths = 1024  # power of two
-    bs_call = bs_price(S0, K, T, r, sigma, "call")
+    bs_call = bs_price(S0, K, T, r, sigma, option_type="call")
 
     mc_errors = []
     for seed in range(15):
-        paths = simulate_gbm_paths(S0, r, sigma, T, steps, n_paths, rng=RNG(seed=seed))
-        mc_errors.append(mc_price_european(paths[:, -1], K, r, T, "call")["price"] - bs_call)
+        paths = simulate_gbm_paths(
+            S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=RNG(seed=seed)
+        )
+        price = mc_price_european(paths[:, -1], K, T, r, option_type="call")["price"]
+        mc_errors.append(price - bs_call)
 
     qmc_errors = []
     for seed in range(15):
         qmc = QMCGenerator(dim=steps, seed=seed)
-        paths = simulate_gbm_paths(S0, r, sigma, T, steps, n_paths, rng=qmc)
-        qmc_errors.append(mc_price_european(paths[:, -1], K, r, T, "call")["price"] - bs_call)
+        paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=qmc)
+        price = mc_price_european(paths[:, -1], K, T, r, option_type="call")["price"]
+        qmc_errors.append(price - bs_call)
 
     mc_rmse = np.sqrt(np.mean(np.square(mc_errors)))
     qmc_rmse = np.sqrt(np.mean(np.square(qmc_errors)))
@@ -70,17 +74,18 @@ def test_brownian_bridge_preserves_iid_normal_increments(steps):
 def test_brownian_bridge_qmc_beats_time_ordered_qmc_for_asian():
     # With 64 time steps, time-ordered Sobol coordinates spread the path
     # variance over all dimensions; the bridge concentrates it in the first few.
-    S0, K, r, T, sigma, steps, n = 100.0, 100.0, 0.02, 1.0, 0.2, 64, 2048
+    S0, K, T, r, sigma, steps, n = 100.0, 100.0, 1.0, 0.02, 0.2, 64, 2048
     reference = mc_price_asian_arithmetic_cv(
-        S0, K, r, T, sigma, steps, 400_000, RNG(seed=0), "call"
+        S0, K, T, r, sigma, steps=steps, n_paths=400_000, rng=RNG(seed=0), option_type="call"
     )["price"]
 
     def rmse(bridge):
         errors = []
         for seed in range(12):
             qmc = QMCGenerator(dim=steps, seed=seed, brownian_bridge=bridge)
-            paths = simulate_gbm_paths(S0, r, sigma, T, steps, n, rng=qmc)
-            errors.append(mc_price_asian_arithmetic(paths, K, r, T, "call")["price"] - reference)
+            paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n, rng=qmc)
+            price = mc_price_asian_arithmetic(paths, K, T, r, option_type="call")["price"]
+            errors.append(price - reference)
         return np.sqrt(np.mean(np.square(errors)))
 
     assert rmse(True) < rmse(False)

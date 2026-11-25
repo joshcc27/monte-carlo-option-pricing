@@ -96,49 +96,49 @@ def price_contract():
     if contract == "European":
         if vr == "Antithetic":
             result = mc_price_european_antithetic(
-                S0, K, r, T, sigma, steps, n_paths, rng, option_type
+                S0, K, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng, option_type=option_type
             )
         else:
-            paths = simulate_gbm_paths(S0, r, sigma, T, steps, n_paths, rng=rng)
-            result = mc_price_european(paths[:, -1], K, r, T, option_type)
+            paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
+            result = mc_price_european(paths[:, -1], K, T, r, option_type=option_type)
     elif contract == "Asian arithmetic":
         if vr == "Antithetic":
             result = mc_price_asian_arithmetic_antithetic(
-                S0, K, r, T, sigma, steps, n_paths, rng, option_type
+                S0, K, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng, option_type=option_type
             )
         elif vr == "Control variate":
             result = mc_price_asian_arithmetic_cv(
-                S0, K, r, T, sigma, steps, n_paths, rng, option_type
+                S0, K, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng, option_type=option_type
             )
         else:
-            paths = simulate_gbm_paths(S0, r, sigma, T, steps, n_paths, rng=rng)
-            result = mc_price_asian_arithmetic(paths, K, r, T, option_type)
+            paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
+            result = mc_price_asian_arithmetic(paths, K, T, r, option_type=option_type)
     else:
         if vr == "Antithetic":
             result = mc_price_barrier_antithetic(
                 S0,
                 K,
-                r,
-                T,
-                sigma,
-                steps,
-                n_paths,
-                rng,
                 barrier,
-                barrier_type,
-                option_type,
+                T,
+                r,
+                sigma,
+                barrier_type=barrier_type,
+                steps=steps,
+                n_paths=n_paths,
+                rng=rng,
+                option_type=option_type,
                 continuity_correction=continuity_correction,
             )
         else:
-            paths = simulate_gbm_paths(S0, r, sigma, T, steps, n_paths, rng=rng)
+            paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
             result = mc_price_barrier(
                 paths,
                 K,
-                r,
-                T,
                 barrier,
-                barrier_type,
-                option_type,
+                T,
+                r,
+                barrier_type=barrier_type,
+                option_type=option_type,
                 sigma=sigma,
                 continuity_correction=continuity_correction,
             )
@@ -164,12 +164,12 @@ if st.button("Price"):
     col5.metric("Runtime", f"{elapsed_ms:.0f} ms")
 
     if contract == "European":
-        bs = bs_price(S0, K, T, r, sigma, option_type)
+        bs = bs_price(S0, K, T, r, sigma, option_type=option_type)
         st.caption(f"Black-Scholes: **{bs:.4f}**  |  Error: {abs(result['price'] - bs):.5f}")
     if contract == "Barrier":
         st.caption(f"Barrier applied to the simulated paths: {result['extra']['barrier_used']:.4f}")
         if barrier_type == "down_out" and option_type == "call":
-            cf = bs_down_and_out_call(S0, K, T, r, sigma, barrier)
+            cf = bs_down_and_out_call(S0, K, barrier, T, r, sigma)
             st.caption(
                 f"Continuously monitored down-and-out call (closed form): **{cf:.4f}**  |  "
                 f"Difference: {result['price'] - cf:+.4f}"
@@ -183,7 +183,13 @@ if st.button("Price"):
             payoffs = disc * asian_arithmetic_payoff(paths, K, option_type)
         else:
             level = barrier_level_for_simulation(
-                S0, barrier, barrier_type, T, steps, sigma, continuity_correction
+                S0,
+                barrier,
+                T,
+                sigma,
+                barrier_type=barrier_type,
+                steps=steps,
+                continuity_correction=continuity_correction,
             )
             payoffs = disc * barrier_payoff(paths, K, level, barrier_type, option_type)
 

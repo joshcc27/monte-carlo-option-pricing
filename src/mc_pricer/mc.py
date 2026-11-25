@@ -22,7 +22,7 @@ from .payoffs import (
 )
 
 
-def _mc_price(data, payoff_fn, K, r, T, option_type):
+def _mc_price(data, payoff_fn, K, T, r, option_type):
     """Generic Monte Carlo pricing routine parameterised by payoff function.
 
     Parameters
@@ -36,10 +36,10 @@ def _mc_price(data, payoff_fn, K, r, T, option_type):
         returns pathwise intrinsic payoffs.
     K : float
         Strike price.
-    r : float
-        Continuously compounded risk-free rate.
     T : float
         Time to maturity in years.
+    r : float
+        Continuously compounded risk-free rate.
     option_type : str
         Option side, case-insensitive: ``"call"`` or ``"put"``.
 
@@ -54,12 +54,12 @@ def _mc_price(data, payoff_fn, K, r, T, option_type):
     # Compute intrinsic payoff path by path using selected payoff function.
     payoffs = payoff_fn(arr, K, option_type)
     # Convert maturity payoffs to present values.
-    discounted = discount_payoffs(payoffs, r, T)
+    discounted = discount_payoffs(payoffs, T, r)
     # Build unified pricing and uncertainty summary.
     return build_result_iid(discounted)
 
 
-def mc_price_european(ST, K, r, T, option_type):
+def mc_price_european(ST, K, T, r, *, option_type):
     """Price a European option from simulated terminal prices.
 
     Parameters
@@ -68,10 +68,10 @@ def mc_price_european(ST, K, r, T, option_type):
         Terminal prices at maturity for all simulated paths.
     K : float
         Strike price.
-    r : float
-        Continuously compounded risk-free rate.
     T : float
         Time to maturity in years.
+    r : float
+        Continuously compounded risk-free rate.
     option_type : str
         Option side, case-insensitive: ``"call"`` or ``"put"``.
 
@@ -91,11 +91,11 @@ def mc_price_european(ST, K, r, T, option_type):
     if st_arr.ndim != 1:
         raise ValueError("ST must be a 1D array-like of terminal prices")
 
-    return _mc_price(st_arr, european_payoff, K, r, T, option_type)
+    return _mc_price(st_arr, european_payoff, K, T, r, option_type)
 
 
 def barrier_level_for_simulation(
-    S0, barrier, barrier_type, T, steps, sigma, continuity_correction
+    S0, barrier, T, sigma, *, barrier_type, steps, continuity_correction
 ):
     """Validate a barrier contract and return the level to apply to simulated paths.
 
@@ -126,7 +126,16 @@ def barrier_level_for_simulation(
 
 
 def mc_price_barrier(
-    paths, K, r, T, barrier, barrier_type, option_type, *, sigma=None, continuity_correction=False
+    paths,
+    K,
+    barrier,
+    T,
+    r,
+    *,
+    barrier_type,
+    option_type,
+    sigma=None,
+    continuity_correction=False,
 ):
     """Price a knock-in or knock-out option from full simulated paths.
 
@@ -143,10 +152,10 @@ def mc_price_barrier(
         Path matrix of shape ``(n_paths, n_times)``; column 0 is ``S0``.
     K : float
         Strike.
-    r : float
-        Continuously compounded risk-free rate.
     T : float
         Maturity in years.
+    r : float
+        Continuously compounded risk-free rate.
     barrier : float
         Barrier level. Up barriers must be above ``S0``, down barriers below.
     barrier_type : str
@@ -172,15 +181,21 @@ def mc_price_barrier(
 
     steps = path_arr.shape[1] - 1
     level = barrier_level_for_simulation(
-        path_arr[0, 0], barrier, barrier_type, T, steps, sigma, continuity_correction
+        path_arr[0, 0],
+        barrier,
+        T,
+        sigma,
+        barrier_type=barrier_type,
+        steps=steps,
+        continuity_correction=continuity_correction,
     )
 
     payoffs = barrier_payoff(path_arr, K, level, barrier_type, option_type)
-    discounted = discount_payoffs(payoffs, r, T)
+    discounted = discount_payoffs(payoffs, T, r)
     return build_result_iid(discounted, extra={"barrier_used": float(level)})
 
 
-def mc_price_asian_arithmetic(paths, K, r, T, option_type):
+def mc_price_asian_arithmetic(paths, K, T, r, *, option_type):
     """Price an arithmetic-average Asian option from full simulated paths.
 
     Parameters
@@ -189,10 +204,10 @@ def mc_price_asian_arithmetic(paths, K, r, T, option_type):
         Simulated path matrix where rows are paths and columns are times.
     K : float
         Strike price.
-    r : float
-        Continuously compounded risk-free rate.
     T : float
         Time to maturity in years.
+    r : float
+        Continuously compounded risk-free rate.
     option_type : str
         Option side, case-insensitive: ``"call"`` or ``"put"``.
 
@@ -216,4 +231,4 @@ def mc_price_asian_arithmetic(paths, K, r, T, option_type):
     if path_arr.shape[1] < 2:
         raise ValueError("paths must include at least one monitoring date beyond S0")
 
-    return _mc_price(path_arr, asian_arithmetic_payoff, K, r, T, option_type)
+    return _mc_price(path_arr, asian_arithmetic_payoff, K, T, r, option_type)

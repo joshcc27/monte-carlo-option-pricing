@@ -38,13 +38,13 @@ with st.sidebar:
 
 
 @st.cache_data
-def convergence_curves(S0, K, r, T, sigma, steps, k_min, k_max, n_seeds, show_qmc, show_bb):
-    bs_ref = bs_price(S0, K, T, r, sigma, "call")
+def convergence_curves(S0, K, T, r, sigma, steps, k_min, k_max, n_seeds, show_qmc, show_bb):
+    bs_ref = bs_price(S0, K, T, r, sigma, option_type="call")
     counts = 2 ** np.arange(k_min, k_max + 1)
 
     def price(rng, n):
-        paths = simulate_gbm_paths(S0, r, sigma, T, steps, int(n), rng=rng)
-        return mc_price_european(paths[:, -1], K, r, T, "call")["price"]
+        paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=int(n), rng=rng)
+        return mc_price_european(paths[:, -1], K, T, r, option_type="call")["price"]
 
     curves = {"Pseudo-random MC": []}
     if show_qmc:
@@ -68,8 +68,9 @@ def convergence_curves(S0, K, r, T, sigma, steps, k_min, k_max, n_seeds, show_qm
             estimates[name].append(values)
 
     # Standard deviation of the discounted payoff, for the sigma / sqrt(N) line.
-    pilot = simulate_gbm_paths(S0, r, sigma, T, 1, 200_000, rng=RNG(seed=7))
-    payoff_sd = discount_payoffs(european_payoff(pilot[:, -1], K, "call"), r, T).std(ddof=1)
+    pilot = simulate_gbm_paths(S0, T, r, sigma, steps=1, n_paths=200_000, rng=RNG(seed=7))
+    pilot_payoffs = european_payoff(pilot[:, -1], K, "call")
+    payoff_sd = discount_payoffs(pilot_payoffs, T=T, r=r).std(ddof=1)
     return counts, curves, estimates, bs_ref, payoff_sd
 
 
@@ -83,7 +84,7 @@ st.markdown(
 if st.button("Run convergence"):
     with st.spinner("Simulating..."):
         counts, curves, estimates, bs_ref, payoff_sd = convergence_curves(
-            S0, K, r, T, sigma, steps, k_min, k_max, n_seeds, show_qmc, show_bb
+            S0, K, T, r, sigma, steps, k_min, k_max, n_seeds, show_qmc, show_bb
         )
 
     fig, ax = plt.subplots(figsize=(9, 4.5))

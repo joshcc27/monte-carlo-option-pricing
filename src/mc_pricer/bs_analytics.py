@@ -47,7 +47,7 @@ def _d1_d2(S0, K, T, r, sigma):
     return d1, d2
 
 
-def bs_price(S0, K, T, r, sigma, option_type):
+def bs_price(S0, K, T, r, sigma, *, option_type):
     """Return Black-Scholes price for a European call or put.
 
     Parameters
@@ -87,7 +87,7 @@ def bs_price(S0, K, T, r, sigma, option_type):
     raise ValueError("option_type must be 'call' or 'put'")
 
 
-def bs_delta(S0, K, T, r, sigma, option_type):
+def bs_delta(S0, K, T, r, sigma, *, option_type):
     """Return Black-Scholes delta for a European call or put.
 
     Delta is the first derivative of option price with respect to spot.
@@ -186,7 +186,7 @@ def bs_gamma(S0, K, T, r, sigma):
     return norm.pdf(d1) / (S0 * sigma * math.sqrt(T))
 
 
-def bs_theta(S0, K, T, r, sigma, option_type):
+def bs_theta(S0, K, T, r, sigma, *, option_type):
     """Return Black-Scholes theta (per year).
 
     Theta is the rate of change of option price with respect to calendar time
@@ -227,7 +227,7 @@ def bs_theta(S0, K, T, r, sigma, option_type):
     return decay + r * K * disc * norm.cdf(-d2)
 
 
-def bs_rho(S0, K, T, r, sigma, option_type):
+def bs_rho(S0, K, T, r, sigma, *, option_type):
     """Return Black-Scholes rho (per unit change in r).
 
     Rho is the first derivative of option price with respect to the
@@ -266,7 +266,7 @@ def bs_rho(S0, K, T, r, sigma, option_type):
     return -K * T * disc * norm.cdf(-d2)
 
 
-def bs_down_and_out_call(S0, K, T, r, sigma, barrier):
+def bs_down_and_out_call(S0, K, barrier, T, r, sigma):
     """Return the price of a continuously monitored down-and-out call.
 
     Standard closed form (Merton 1973; Reiner and Rubinstein 1991; Hull,
@@ -304,7 +304,7 @@ def bs_down_and_out_call(S0, K, T, r, sigma, barrier):
         c_di = S0 * ratio ** (2 * lam) * norm.cdf(y) - K * disc * ratio ** (
             2 * lam - 2
         ) * norm.cdf(y - sig_sqrt_t)
-        return bs_price(S0, K, T, r, sigma, "call") - c_di
+        return bs_price(S0, K, T, r, sigma, option_type="call") - c_di
 
     x1 = math.log(S0 / H) / sig_sqrt_t + lam * sig_sqrt_t
     y1 = math.log(H / S0) / sig_sqrt_t + lam * sig_sqrt_t

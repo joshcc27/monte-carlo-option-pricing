@@ -11,18 +11,20 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Joshua Cox" }]
 requires-python = ">=3.11"
+# The Streamlit app's packages are core dependencies so that any install route
+# (uv sync, pip install ., or Streamlit Community Cloud reading uv.lock) can run app.py.
 dependencies = [
     "numpy>=2.0,<3",
     "scipy>=1.13,<2",
+    "matplotlib>=3.9,<4",
+    "pandas>=2.2,<4",
+    "streamlit>=1.45,<2",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0,<10",
     "ruff>=0.17",
-    "matplotlib>=3.9,<4",
-    "pandas>=2.2,<4",
-    "streamlit>=1.45,<2",
     "jupyter>=1.1",
     "ipykernel>=6.29",
     "nbconvert>=7.16",

@@ -23,14 +23,18 @@ VEGA = 37.52403469169379
 
 def test_bs_price_matches_known_values():
     # Compare both call and put prices to trusted benchmark values.
-    assert np.isclose(bs_price(S0, K, T, r, sigma, "call"), CALL_PRICE, rtol=0, atol=1e-9)
-    assert np.isclose(bs_price(S0, K, T, r, sigma, "put"), PUT_PRICE, rtol=0, atol=1e-9)
+    call = bs_price(S0, K, T, r, sigma, option_type="call")
+    put = bs_price(S0, K, T, r, sigma, option_type="put")
+    assert np.isclose(call, CALL_PRICE, rtol=0, atol=1e-9)
+    assert np.isclose(put, PUT_PRICE, rtol=0, atol=1e-9)
 
 
 def test_bs_delta_matches_known_values():
     # Delta signs and magnitudes are sensitive; use tight absolute tolerance.
-    assert np.isclose(bs_delta(S0, K, T, r, sigma, "call"), CALL_DELTA, rtol=0, atol=1e-9)
-    assert np.isclose(bs_delta(S0, K, T, r, sigma, "put"), PUT_DELTA, rtol=0, atol=1e-9)
+    call = bs_delta(S0, K, T, r, sigma, option_type="call")
+    put = bs_delta(S0, K, T, r, sigma, option_type="put")
+    assert np.isclose(call, CALL_DELTA, rtol=0, atol=1e-9)
+    assert np.isclose(put, PUT_DELTA, rtol=0, atol=1e-9)
 
 
 def test_bs_vega_matches_known_values():
@@ -45,16 +49,16 @@ def test_bs_gamma_matches_known_value():
 
 
 def test_bs_theta_matches_known_values():
-    call_theta = bs_theta(S0, K, T, r, sigma, "call")
-    put_theta = bs_theta(S0, K, T, r, sigma, "put")
+    call_theta = bs_theta(S0, K, T, r, sigma, option_type="call")
+    put_theta = bs_theta(S0, K, T, r, sigma, option_type="put")
     assert call_theta < 0
     assert np.isclose(call_theta, -6.414027546438196, rtol=0, atol=1e-9)
     assert np.isclose(put_theta, -1.6578804239346256, rtol=0, atol=1e-9)
 
 
 def test_bs_rho_matches_known_values():
-    call_rho = bs_rho(S0, K, T, r, sigma, "call")
-    put_rho = bs_rho(S0, K, T, r, sigma, "put")
+    call_rho = bs_rho(S0, K, T, r, sigma, option_type="call")
+    put_rho = bs_rho(S0, K, T, r, sigma, option_type="put")
     assert call_rho > 0
     assert put_rho < 0
     assert np.isclose(call_rho, 53.232481545376345, rtol=0, atol=1e-9)
@@ -64,7 +68,7 @@ def test_bs_rho_matches_known_values():
 def test_bs_put_call_parity_holds():
     # Exact Black-Scholes parity: C - P = S0 - K * exp(-rT).
     # This confirms call/put formulas are internally consistent.
-    call = bs_price(S0, K, T, r, sigma, "call")
-    put = bs_price(S0, K, T, r, sigma, "put")
+    call = bs_price(S0, K, T, r, sigma, option_type="call")
+    put = bs_price(S0, K, T, r, sigma, option_type="put")
     parity_rhs = S0 - K * np.exp(-r * T)
     assert np.isclose(call - put, parity_rhs, rtol=0, atol=1e-10)

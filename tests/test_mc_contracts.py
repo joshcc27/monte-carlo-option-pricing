@@ -19,13 +19,17 @@ from mc_pricer.variance_reduction import mc_price_european_antithetic
 def test_mc_price_european_rejects_non_1d_input():
     # European pricer expects a 1D vector of terminal prices.
     with pytest.raises(ValueError, match="ST must be a 1D array-like"):
-        mc_price_european(np.array([[100.0, 101.0]]), 100.0, 0.02, 1.0, "call")
+        mc_price_european(
+            np.array([[100.0, 101.0]]), K=100.0, T=1.0, r=0.02, option_type="call"
+        )
 
 
 def test_mc_price_asian_rejects_non_2d_input():
     # Arithmetic Asian pricer expects a full path matrix.
     with pytest.raises(ValueError, match="paths must be a 2D array-like"):
-        mc_price_asian_arithmetic(np.array([100.0, 101.0, 102.0]), 100.0, 0.02, 1.0, "call")
+        mc_price_asian_arithmetic(
+            np.array([100.0, 101.0, 102.0]), K=100.0, T=1.0, r=0.02, option_type="call"
+        )
 
 
 def test_plain_and_antithetic_result_schema_consistency(european_market, make_rng):
@@ -38,21 +42,21 @@ def test_plain_and_antithetic_result_schema_consistency(european_market, make_rn
 
     rng_plain = make_rng(11)
     paths = simulate_gbm_paths(
-        params["S0"], params["r"], params["sigma"], params["T"], steps, n_paths, rng=rng_plain
+        params["S0"],
+        params["T"],
+        params["r"],
+        params["sigma"],
+        steps=steps,
+        n_paths=n_paths,
+        rng=rng_plain,
     )
-    plain = mc_price_european(paths[:, -1], params["K"], params["r"], params["T"], "call")
+    plain = mc_price_european(
+        paths[:, -1], K=params["K"], T=params["T"], r=params["r"], option_type="call"
+    )
 
     rng_anti = make_rng(11)
     anti = mc_price_european_antithetic(
-        params["S0"],
-        params["K"],
-        params["r"],
-        params["T"],
-        params["sigma"],
-        steps,
-        n_paths,
-        rng_anti,
-        "call",
+        **params, steps=steps, n_paths=n_paths, rng=rng_anti, option_type="call"
     )
 
     expected_keys = {"price", "stderr", "ci_low", "ci_high", "n_paths", "extra"}
@@ -73,12 +77,20 @@ def test_mc_price_within_confidence_interval(european_market, make_rng):
 
     rng = make_rng(1234)
     paths = simulate_gbm_paths(
-        params["S0"], params["r"], params["sigma"], params["T"], steps, n_paths, rng=rng
+        params["S0"],
+        params["T"],
+        params["r"],
+        params["sigma"],
+        steps=steps,
+        n_paths=n_paths,
+        rng=rng,
     )
     ST = paths[:, -1]
 
-    mc_result = mc_price_european(ST, params["K"], params["r"], params["T"], "call")
-    bs_call = bs_price(params["S0"], params["K"], params["T"], params["r"], params["sigma"], "call")
+    mc_result = mc_price_european(
+        ST, K=params["K"], T=params["T"], r=params["r"], option_type="call"
+    )
+    bs_call = bs_price(**params, option_type="call")
 
     diff = abs(mc_result["price"] - bs_call)
     assert diff <= 3 * mc_result["stderr"] + 1e-3
@@ -92,7 +104,7 @@ def test_mc_error_and_stderr_scale_with_inverse_sqrt_n(european_market, make_rng
     n_small = 10_000
     n_large = 160_000
     expected_ratio = np.sqrt(n_large / n_small)  # ~4.0
-    bs_call = bs_price(params["S0"], params["K"], params["T"], params["r"], params["sigma"], "call")
+    bs_call = bs_price(**params, option_type="call")
 
     errs_small, errs_large = [], []
     se_small, se_large = [], []
@@ -101,10 +113,16 @@ def test_mc_error_and_stderr_scale_with_inverse_sqrt_n(european_market, make_rng
     for seed in (10, 11, 12, 13, 14, 15):
         rng_small = make_rng(seed)
         paths_small = simulate_gbm_paths(
-            params["S0"], params["r"], params["sigma"], params["T"], steps, n_small, rng=rng_small
+            params["S0"],
+            params["T"],
+            params["r"],
+            params["sigma"],
+            steps=steps,
+            n_paths=n_small,
+            rng=rng_small,
         )
         mc_small = mc_price_european(
-            paths_small[:, -1], params["K"], params["r"], params["T"], "call"
+            paths_small[:, -1], K=params["K"], T=params["T"], r=params["r"], option_type="call"
         )
         errs_small.append(abs(mc_small["price"] - bs_call))
         se_small.append(mc_small["stderr"])
@@ -112,10 +130,16 @@ def test_mc_error_and_stderr_scale_with_inverse_sqrt_n(european_market, make_rng
     for seed in (210, 211, 212, 213, 214, 215):
         rng_large = make_rng(seed)
         paths_large = simulate_gbm_paths(
-            params["S0"], params["r"], params["sigma"], params["T"], steps, n_large, rng=rng_large
+            params["S0"],
+            params["T"],
+            params["r"],
+            params["sigma"],
+            steps=steps,
+            n_paths=n_large,
+            rng=rng_large,
         )
         mc_large = mc_price_european(
-            paths_large[:, -1], params["K"], params["r"], params["T"], "call"
+            paths_large[:, -1], K=params["K"], T=params["T"], r=params["r"], option_type="call"
         )
         errs_large.append(abs(mc_large["price"] - bs_call))
         se_large.append(mc_large["stderr"])
@@ -140,11 +164,21 @@ def test_mc_put_call_parity_sanity(european_market, make_rng):
 
     rng = make_rng(909)
     paths = simulate_gbm_paths(
-        params["S0"], params["r"], params["sigma"], params["T"], steps, n_paths, rng=rng
+        params["S0"],
+        params["T"],
+        params["r"],
+        params["sigma"],
+        steps=steps,
+        n_paths=n_paths,
+        rng=rng,
     )
     ST = paths[:, -1]
-    call_mc = mc_price_european(ST, params["K"], params["r"], params["T"], "call")
-    put_mc = mc_price_european(ST, params["K"], params["r"], params["T"], "put")
+    call_mc = mc_price_european(
+        ST, K=params["K"], T=params["T"], r=params["r"], option_type="call"
+    )
+    put_mc = mc_price_european(
+        ST, K=params["K"], T=params["T"], r=params["r"], option_type="put"
+    )
 
     lhs = call_mc["price"] - put_mc["price"]
     rhs = params["S0"] - params["K"] * np.exp(-params["r"] * params["T"])

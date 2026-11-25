@@ -1,4 +1,9 @@
-"""Monte Carlo pricing of European, arithmetic Asian and barrier options under GBM."""
+"""Monte Carlo pricing of European, arithmetic Asian and barrier options under GBM.
+
+Market and contract arguments come first, in the order ``S0, K, [barrier,] T, r, sigma``
+(pricers that work on simulated paths take the paths in place of ``S0``). Everything after
+those is keyword-only: ``steps``, ``n_paths``, ``rng``, ``option_type`` and so on.
+"""
 
 from .asian_geometric import price_geometric_asian
 from .binomial import price_binomial

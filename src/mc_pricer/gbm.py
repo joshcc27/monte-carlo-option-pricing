@@ -10,19 +10,19 @@ import numpy as np
 from .validation import validate_positive, validate_positive_int
 
 
-def simulate_gbm_paths(S0, r, sigma, T, steps, n_paths, rng=None, shocks=None):
+def simulate_gbm_paths(S0, T, r, sigma, *, steps, n_paths, rng=None, shocks=None):
     """Simulate GBM price paths on an equally spaced monitoring grid.
 
     Parameters
     ----------
     S0 : float
         Initial spot price at time ``t=0``.
+    T : float
+        Time horizon in years.
     r : float
         Continuously compounded risk-free drift used under pricing measure.
     sigma : float
         Volatility (annualized, decimal).
-    T : float
-        Time horizon in years.
     steps : int
         Number of time increments between ``0`` and ``T``.
     n_paths : int

@@ -40,17 +40,17 @@ def _sum_pairwise_min(times):
     return float(np.sum(t * (2 * (n - k) + 1)))
 
 
-def geometric_parameters(r, sigma, times):
+def geometric_parameters(times, r, sigma):
     """Return ``(mu_g, sigma_g)`` with ``log(G) ~ N(log(S0) + mu_g, sigma_g^2)``.
 
     Parameters
     ----------
+    times : array-like
+        Monitoring times, a non-empty 1D array with all ``t_i > 0``.
     r : float
         Continuously compounded risk-free rate.
     sigma : float
         Volatility (annualised, decimal).
-    times : array-like
-        Monitoring times, a non-empty 1D array with all ``t_i > 0``.
 
     Raises
     ------
@@ -67,7 +67,7 @@ def geometric_parameters(r, sigma, times):
     return mu_g, float(np.sqrt(var_g))
 
 
-def price_geometric_asian(S0, K, r, sigma, T, steps, option_type):
+def price_geometric_asian(S0, K, T, r, sigma, *, steps, option_type):
     """Return the closed-form price of a geometric-average Asian call or put.
 
     The average is taken over ``steps`` equally spaced dates ``T/steps, ..., T``
@@ -77,12 +77,12 @@ def price_geometric_asian(S0, K, r, sigma, T, steps, option_type):
     ----------
     S0, K : float
         Spot and strike.
+    T : float
+        Maturity in years.
     r : float
         Continuously compounded risk-free rate.
     sigma : float
         Volatility (annualised, decimal).
-    T : float
-        Maturity in years.
     steps : int
         Number of monitoring dates.
     option_type : str
@@ -100,7 +100,7 @@ def price_geometric_asian(S0, K, r, sigma, T, steps, option_type):
     option_type = normalise_option_type(option_type)
 
     times = monitoring_times(T, steps)
-    mu_g, sigma_g = geometric_parameters(r, sigma, times)
+    mu_g, sigma_g = geometric_parameters(times, r, sigma)
 
     mean_ln = np.log(S0) + mu_g
     forward_g = np.exp(mean_ln + 0.5 * sigma_g * sigma_g)  # E[G]

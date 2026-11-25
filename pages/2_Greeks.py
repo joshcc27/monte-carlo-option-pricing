@@ -41,7 +41,15 @@ st.caption(
 if st.button("Estimate Greeks"):
     with st.spinner("Running Monte Carlo..."):
         result = mc_european_greeks(
-            S0, K, r, T, sigma, option_type, steps, n_paths, RNG(seed=int(seed))
+            S0,
+            K,
+            T,
+            r,
+            sigma,
+            option_type=option_type,
+            steps=steps,
+            n_paths=n_paths,
+            rng=RNG(seed=int(seed)),
         )
 
     greeks_order = ["delta", "vega", "gamma", "theta", "rho"]

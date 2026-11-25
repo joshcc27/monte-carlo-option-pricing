@@ -106,8 +106,20 @@ def _stderr(samples):
 
 
 def mc_european_greeks(
-    S0, K, r, T, sigma, option_type, steps, n_paths, rng,
-    h_S=None, h_sigma=None, h_T=None, h_r=None,
+    S0,
+    K,
+    T,
+    r,
+    sigma,
+    *,
+    option_type,
+    steps,
+    n_paths,
+    rng,
+    h_S=None,
+    h_sigma=None,
+    h_T=None,
+    h_r=None,
 ):
     """Estimate European Greeks with pathwise and finite-difference MC.
 
@@ -122,10 +134,10 @@ def mc_european_greeks(
         Spot price.
     K : float
         Strike price.
-    r : float
-        Continuously compounded risk-free rate.
     T : float
         Time to maturity in years.
+    r : float
+        Continuously compounded risk-free rate.
     sigma : float
         Volatility (annualised, decimal).
     option_type : str
@@ -190,7 +202,9 @@ def mc_european_greeks(
         raise ValueError("h_T must satisfy 0 < h_T < T")
 
     shocks = rng.normal(size=(n_paths, steps))
-    base_paths = simulate_gbm_paths(S0, r, sigma, T, steps, n_paths, shocks=shocks)
+    # Every bumped run reuses these shocks (common random numbers).
+    sim = {"steps": steps, "n_paths": n_paths, "shocks": shocks}
+    base_paths = simulate_gbm_paths(S0, T, r, sigma, **sim)
     ST = base_paths[:, -1]
     discount = np.exp(-r * T)
 
@@ -201,8 +215,8 @@ def mc_european_greeks(
     delta_pw = delta_samples.mean()
     delta_pw_stderr = _stderr(delta_samples)
 
-    paths_up = simulate_gbm_paths(S0 + h_S, r, sigma, T, steps, n_paths, shocks=shocks)
-    paths_down = simulate_gbm_paths(S0 - h_S, r, sigma, T, steps, n_paths, shocks=shocks)
+    paths_up = simulate_gbm_paths(S0 + h_S, T, r, sigma, **sim)
+    paths_down = simulate_gbm_paths(S0 - h_S, T, r, sigma, **sim)
     payoffs_up = discount * european_payoff(paths_up[:, -1], K, option_type)
     payoffs_down = discount * european_payoff(paths_down[:, -1], K, option_type)
     payoffs_base = discount * european_payoff(ST, K, option_type)
@@ -221,8 +235,8 @@ def mc_european_greeks(
     vega_pw = vega_samples.mean()
     vega_pw_stderr = _stderr(vega_samples)
 
-    paths_sigma_up = simulate_gbm_paths(S0, r, sigma + h_sigma, T, steps, n_paths, shocks=shocks)
-    paths_sigma_down = simulate_gbm_paths(S0, r, sigma - h_sigma, T, steps, n_paths, shocks=shocks)
+    paths_sigma_up = simulate_gbm_paths(S0, T, r, sigma + h_sigma, **sim)
+    paths_sigma_down = simulate_gbm_paths(S0, T, r, sigma - h_sigma, **sim)
     payoffs_sigma_up = discount * european_payoff(paths_sigma_up[:, -1], K, option_type)
     payoffs_sigma_down = discount * european_payoff(paths_sigma_down[:, -1], K, option_type)
     vega_fd_samples = (payoffs_sigma_up - payoffs_sigma_down) / (2 * h_sigma)
@@ -230,8 +244,8 @@ def mc_european_greeks(
     vega_fd_stderr = _stderr(vega_fd_samples)
 
     # --- Theta: theta = dV/dt = -dV/dT ---
-    paths_T_up = simulate_gbm_paths(S0, r, sigma, T + h_T, steps, n_paths, shocks=shocks)
-    paths_T_down = simulate_gbm_paths(S0, r, sigma, T - h_T, steps, n_paths, shocks=shocks)
+    paths_T_up = simulate_gbm_paths(S0, T + h_T, r, sigma, **sim)
+    paths_T_down = simulate_gbm_paths(S0, T - h_T, r, sigma, **sim)
     payoffs_T_up = np.exp(-r * (T + h_T)) * european_payoff(paths_T_up[:, -1], K, option_type)
     payoffs_T_down = np.exp(-r * (T - h_T)) * european_payoff(paths_T_down[:, -1], K, option_type)
     theta_fd_samples = -(payoffs_T_up - payoffs_T_down) / (2 * h_T)
@@ -239,8 +253,8 @@ def mc_european_greeks(
     theta_fd_stderr = _stderr(theta_fd_samples)
 
     # --- Rho: rate bump affects both GBM drift and discount factor ---
-    paths_r_up = simulate_gbm_paths(S0, r + h_r, sigma, T, steps, n_paths, shocks=shocks)
-    paths_r_down = simulate_gbm_paths(S0, r - h_r, sigma, T, steps, n_paths, shocks=shocks)
+    paths_r_up = simulate_gbm_paths(S0, T, r + h_r, sigma, **sim)
+    paths_r_down = simulate_gbm_paths(S0, T, r - h_r, sigma, **sim)
     payoffs_r_up = np.exp(-(r + h_r) * T) * european_payoff(paths_r_up[:, -1], K, option_type)
     payoffs_r_down = np.exp(-(r - h_r) * T) * european_payoff(paths_r_down[:, -1], K, option_type)
     rho_fd_samples = (payoffs_r_up - payoffs_r_down) / (2 * h_r)
@@ -253,7 +267,7 @@ def mc_european_greeks(
             "pathwise_stderr": delta_pw_stderr,
             "finite_difference": delta_fd,
             "finite_difference_stderr": delta_fd_stderr,
-            "analytic": bs_delta(S0, K, T, r, sigma, option_type),
+            "analytic": bs_delta(S0, K, T, r, sigma, option_type=option_type),
             "h_S": h_S,
         },
         "vega": {
@@ -273,13 +287,13 @@ def mc_european_greeks(
         "theta": {
             "finite_difference": theta_fd,
             "finite_difference_stderr": theta_fd_stderr,
-            "analytic": bs_theta(S0, K, T, r, sigma, option_type),
+            "analytic": bs_theta(S0, K, T, r, sigma, option_type=option_type),
             "h_T": h_T,
         },
         "rho": {
             "finite_difference": rho_fd,
             "finite_difference_stderr": rho_fd_stderr,
-            "analytic": bs_rho(S0, K, T, r, sigma, option_type),
+            "analytic": bs_rho(S0, K, T, r, sigma, option_type=option_type),
             "h_r": h_r,
         },
     }
