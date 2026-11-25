@@ -18,12 +18,12 @@ All numbers come from the committed notebooks and script and are reproducible wi
 
 | Experiment | Result |
 | --- | --- |
-| Arithmetic Asian call, 64 dates, S0=100, K=95, r=1.5%, σ=25%, T=1 | Control variate cuts variance by a factor of about 1,080 (standard error 33 times smaller); antithetic by 2.5 |
+| Arithmetic Asian call, 64 dates, $S_0=100$, $K=95$, $r=1.5\%$, $\sigma=25\%$, $T=1$ | Control variate cuts variance by a factor of about 1,080 (standard error 33 times smaller); antithetic by 2.5 |
 | Same contract, paths for a 95% half-width of one cent | Plain 4.8 million, antithetic 1.9 million, control variate 4,000 |
-| European call and put, N from 10³ to 3×10⁶ | RMSE slope −0.48 and −0.49 against log N, on the σ/√N line; no detectable bias |
-| 95% CI coverage over 2,000 runs, at-the-money call | 94.6% to 95.4% at N = 100, 1,000 and 10,000 |
-| 95% CI coverage, K=160 call (price 0.44) | 75.7% at N = 100, 92.6% at N = 1,000, 94.7% at N = 10,000 |
-| Down-and-out call, K=100, H=90, 52 monitoring dates | Discrete price 0.52 above the continuous closed form (8.6655); 0.02 above with the BGK correction (stderr 0.023) |
+| European call and put, $N$ from $10^3$ to $3\times10^6$ | RMSE slope $-0.48$ and $-0.49$ against $\log N$, on the $\sigma/\sqrt{N}$ line; no detectable bias |
+| 95% CI coverage over 2,000 runs, at-the-money call | 94.6% to 95.4% at $N = 100$, $1{,}000$ and $10{,}000$ |
+| 95% CI coverage, $K=160$ call (price 0.44) | 75.7% at $N = 100$, 92.6% at $N = 1{,}000$, 94.7% at $N = 10{,}000$ |
+| Down-and-out call, $K=100$, $H=90$, 52 monitoring dates | Discrete price 0.52 above the continuous closed form (8.6655); 0.02 above with the BGK correction (stderr 0.023) |
 
 Sources: [notebooks/02](notebooks/02_asian_variance_reduction_benchmark.ipynb) for the Asian rows, [notebooks/01](notebooks/01_european_monte_carlo_convergence.ipynb) for the European rows, and [scripts/barrier_continuity_correction.py](scripts/barrier_continuity_correction.py) for the barrier row.
 
@@ -74,21 +74,29 @@ Every pricer returns the same dictionary: `price`, `stderr`, `ci_low`, `ci_high`
 
 GBM is simulated in log space, so values on the time grid are exact for any step size. European payoffs therefore need only one step.
 
-The pathwise Greeks differentiate the payoff along each path, using dS_T/dS0 = S_T/S0 for delta and dS_T/dσ for vega. The finite-difference Greeks reuse the same shocks for the bumped runs (common random numbers). Gamma, theta and rho are finite differences only. The gamma standard error grows like h^(-1/2) as the bump h shrinks, and a test checks this.
+The pathwise Greeks differentiate the payoff along each path, using $\partial S_T/\partial S_0 = S_T/S_0$ for delta and $\partial S_T/\partial \sigma$ for vega. The finite-difference Greeks reuse the same shocks for the bumped runs (common random numbers). Gamma, theta and rho are finite differences only. The gamma standard error grows like $h^{-1/2}$ as the bump $h$ shrinks, and a test checks this.
 
-Antithetic shocks are drawn as [Z, −Z], and the standard error is computed over the N/2 pair means.
+Antithetic shocks are drawn as pairs $(Z, -Z)$, and the standard error is computed over the $N/2$ pair means.
 
-For prices observed at t_1, ..., t_n, the log of the geometric average is normal with mean log S0 + (r − σ²/2)·mean(t) and variance σ²/n² · Σ_i Σ_j min(t_i, t_j). With one date this reduces to Black-Scholes, which a test checks. The control-variate coefficient b = Cov(X, Y)/Var(Y) is fitted on the same paths.
+For prices observed at $t_1, \dots, t_n$, the log of the geometric average $G$ is normal with
 
-Sobol points are scrambled and mapped to normals by the inverse CDF. With the Brownian bridge, the first coordinate sets W(T), the second W(T/2), and so on, so the best-distributed coordinates carry most of the path variance.
+$$
+\mathbb{E}[\log G] = \log S_0 + \left(r - \frac{\sigma^2}{2}\right)\bar{t},
+\qquad
+\operatorname{Var}[\log G] = \frac{\sigma^2}{n^2} \sum_{i=1}^{n} \sum_{j=1}^{n} \min(t_i, t_j),
+$$
 
-Barriers are checked on the simulated dates only. The BGK correction moves the barrier towards spot by a factor exp(0.5826·σ·√Δt). Barriers on the wrong side of spot are rejected.
+where $\bar{t}$ is the mean monitoring time. With one date this reduces to Black-Scholes, which a test checks. The control-variate coefficient $b = \operatorname{Cov}(X, Y)/\operatorname{Var}(Y)$ is fitted on the same paths.
 
-The Cox-Ross-Rubinstein tree uses u = exp(σ√Δt) and raises an error when exp(rΔt) falls outside (d, u), where the risk-neutral probability would leave [0, 1].
+Sobol points are scrambled and mapped to normals by the inverse CDF. With the Brownian bridge, the first coordinate sets $W(T)$, the second $W(T/2)$, and so on, so the best-distributed coordinates carry most of the path variance.
+
+Barriers are checked on the simulated dates only. The BGK correction moves the barrier towards spot by a factor $e^{0.5826\,\sigma\sqrt{\Delta t}}$. Barriers on the wrong side of spot are rejected.
+
+The Cox-Ross-Rubinstein tree uses $u = e^{\sigma\sqrt{\Delta t}}$ and raises an error when $e^{r\Delta t}$ falls outside $(d, u)$, where the risk-neutral probability would leave $[0, 1]$.
 
 ## Limitations
 
-- Barrier monitoring is discrete. Without the correction you get the price of a contract checked only on the simulated dates. The BGK correction reduces the error to a smaller order than √Δt, but it assumes equally spaced dates.
+- Barrier monitoring is discrete. Without the correction you get the price of a contract checked only on the simulated dates. The BGK correction reduces the error to a smaller order than $\sqrt{\Delta t}$, but it assumes equally spaced dates.
 - Greeks are for European options only. There are no Greeks for Asian or barrier options, where pathwise derivatives of the barrier indicator would need likelihood-ratio or smoothing methods.
 - The binomial tree prices European exercise only. Nothing in the project handles American or Bermudan exercise.
 - The standard error the pricers print assumes independent samples, so it means nothing for Sobol paths. Use the spread over several scrambles instead, as the Convergence page does. Sobol also needs path counts that are powers of two. Without the Brownian bridge, its advantage fades as the number of time steps grows.
