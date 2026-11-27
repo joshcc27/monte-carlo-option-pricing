@@ -1,9 +1,18 @@
 import time
 
-import matplotlib.pyplot as plt
+import altair as alt
 import numpy as np
+import pandas as pd
 import streamlit as st
 
+from app_common import (
+    fits_in_memory,
+    market_inputs,
+    show_chart,
+    sidebar_hint,
+    store_market,
+    thousands,
+)
 from mc_pricer.bs_analytics import bs_down_and_out_call, bs_price
 from mc_pricer.gbm import simulate_gbm_paths
 from mc_pricer.mc import (
@@ -21,64 +30,65 @@ from mc_pricer.variance_reduction import (
     mc_price_european_antithetic,
 )
 
-st.set_page_config(page_title="Option Pricer", layout="wide")
 st.title("Option Pricer")
+sidebar_hint()
 
 # Default barrier as a fraction of spot, per barrier direction.
 BARRIER_DEFAULT_RATIO = {"down": 0.90, "up": 1.15}
+BARRIER_LABELS = {
+    "down_out": "Down-and-out",
+    "down_in": "Down-and-in",
+    "up_out": "Up-and-out",
+    "up_in": "Up-and-in",
+}
 
 with st.sidebar:
-    st.header("Parameters")
-
-    st.subheader("Market")
-    S0 = st.number_input("Spot S0", value=100.0, min_value=0.01, step=1.0)
-    K = st.number_input("Strike K", value=100.0, min_value=0.01, step=1.0)
-    r = st.number_input(
-        "Rate r", value=0.02, min_value=-0.10, max_value=0.30, step=0.005, format="%.3f"
-    )
-    T = st.number_input("Maturity T", value=1.0, min_value=0.01, step=0.25)
-    sigma = st.number_input(
-        "Vol σ", value=0.20, min_value=0.01, max_value=2.0, step=0.01, format="%.2f"
-    )
-
-    st.subheader("Contract")
-    contract = st.selectbox("Type", ["European", "Asian arithmetic", "Barrier"])
-    option_type = st.radio("Side", ["call", "put"], horizontal=True)
-
-    barrier = None
+    contract = st.selectbox("Contract", ["European", "Asian arithmetic", "Barrier"])
     barrier_type = None
-    continuity_correction = False
     if contract == "Barrier":
-        barrier_type = st.selectbox("Barrier type", ["down_out", "down_in", "up_out", "up_in"])
-        direction = barrier_type.split("_")[0]
-        barrier = st.number_input(
-            "Barrier level",
-            value=round(BARRIER_DEFAULT_RATIO[direction] * S0, 2),
-            step=1.0,
-            key=f"barrier_{direction}",
-            help="Up barriers must be above spot, down barriers below.",
-        )
-        continuity_correction = st.checkbox(
-            "Continuity correction (Broadie-Glasserman-Kou)",
-            value=False,
-            help="Shift the barrier by exp(±0.5826·σ·√Δt) so the discretely monitored "
-            "simulation approximates a continuously monitored barrier.",
+        barrier_type = st.selectbox(
+            "Barrier type", list(BARRIER_LABELS), format_func=BARRIER_LABELS.get
         )
 
-    st.subheader("Simulation")
-    n_paths = st.select_slider(
-        "Paths",
-        options=[1_000, 5_000, 10_000, 50_000, 100_000, 200_000, 500_000],
-        value=100_000,
-    )
-    steps = st.select_slider("Steps", options=[8, 16, 32, 64, 128, 252], value=64)
-    seed = st.number_input("Seed", value=42, step=1)
+    with st.form("inputs"):
+        st.subheader("Market")
+        S0, K, T, r, sigma = market_inputs()
 
-    st.subheader("Variance reduction")
-    vr_options = ["None", "Antithetic"]
-    if contract == "Asian arithmetic":
-        vr_options.append("Control variate")
-    vr = st.selectbox("Method", vr_options)
+        st.subheader("Contract")
+        option_type = st.radio("Side", ["call", "put"], horizontal=True)
+        barrier = None
+        continuity_correction = False
+        if contract == "Barrier":
+            direction = barrier_type.split("_")[0]
+            barrier = st.number_input(
+                "Barrier level",
+                value=round(BARRIER_DEFAULT_RATIO[direction] * S0, 2),
+                step=1.0,
+                key=f"barrier_{direction}",
+                help="Up barriers must be above spot, down barriers below.",
+            )
+            continuity_correction = st.checkbox(
+                "Continuity correction (Broadie-Glasserman-Kou)",
+                value=False,
+                help="Shift the barrier by exp(±0.5826·σ·√Δt) so the discretely monitored "
+                "simulation approximates a continuously monitored barrier.",
+            )
+
+        st.subheader("Simulation")
+        n_paths = st.select_slider(
+            "Paths",
+            options=[1_000, 5_000, 10_000, 50_000, 100_000, 200_000, 500_000],
+            value=100_000,
+            format_func=thousands,
+        )
+        steps = st.select_slider("Steps", options=[8, 16, 32, 64, 128, 252], value=64)
+        seed = st.number_input("Seed", value=42, step=1)
+        vr_options = ["None", "Antithetic"]
+        if contract == "Asian arithmetic":
+            vr_options.append("Control variate")
+        vr = st.selectbox("Variance reduction", vr_options)
+
+        st.form_submit_button("Price", type="primary", on_click=store_market)
 
 if contract == "Barrier":
     st.info(
@@ -90,119 +100,170 @@ if contract == "Barrier":
     )
 
 
-def price_contract():
-    rng = RNG(seed=int(seed))
-    paths = None
+@st.cache_data(max_entries=8, show_spinner="Simulating...")
+def price_contract(
+    contract,
+    option_type,
+    S0,
+    K,
+    T,
+    r,
+    sigma,
+    barrier,
+    barrier_type,
+    continuity_correction,
+    n_paths,
+    steps,
+    seed,
+    vr,
+):
+    """Price the contract. Returns the result, the discounted payoffs (plain MC only) and ms."""
+    t0 = time.perf_counter()
+    rng = RNG(seed=seed)
+    common = {"steps": steps, "n_paths": n_paths, "rng": rng, "option_type": option_type}
+    payoffs = None
+    disc = np.exp(-r * T)
+
     if contract == "European":
         if vr == "Antithetic":
-            result = mc_price_european_antithetic(
-                S0, K, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng, option_type=option_type
-            )
+            result = mc_price_european_antithetic(S0, K, T, r, sigma, **common)
         else:
             paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
             result = mc_price_european(paths[:, -1], K, T, r, option_type=option_type)
+            payoffs = disc * european_payoff(paths[:, -1], K, option_type)
     elif contract == "Asian arithmetic":
         if vr == "Antithetic":
-            result = mc_price_asian_arithmetic_antithetic(
-                S0, K, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng, option_type=option_type
-            )
+            result = mc_price_asian_arithmetic_antithetic(S0, K, T, r, sigma, **common)
         elif vr == "Control variate":
-            result = mc_price_asian_arithmetic_cv(
-                S0, K, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng, option_type=option_type
-            )
+            result = mc_price_asian_arithmetic_cv(S0, K, T, r, sigma, **common)
         else:
             paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
             result = mc_price_asian_arithmetic(paths, K, T, r, option_type=option_type)
+            payoffs = disc * asian_arithmetic_payoff(paths, K, option_type)
     else:
+        barrier_args = {
+            "barrier_type": barrier_type,
+            "continuity_correction": continuity_correction,
+        }
         if vr == "Antithetic":
             result = mc_price_barrier_antithetic(
-                S0,
-                K,
-                barrier,
-                T,
-                r,
-                sigma,
-                barrier_type=barrier_type,
-                steps=steps,
-                n_paths=n_paths,
-                rng=rng,
-                option_type=option_type,
-                continuity_correction=continuity_correction,
+                S0, K, barrier, T, r, sigma, **barrier_args, **common
             )
         else:
             paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
             result = mc_price_barrier(
-                paths,
-                K,
-                barrier,
-                T,
-                r,
-                barrier_type=barrier_type,
-                option_type=option_type,
-                sigma=sigma,
-                continuity_correction=continuity_correction,
+                paths, K, barrier, T, r, option_type=option_type, sigma=sigma, **barrier_args
             )
-    return result, paths
-
-
-if st.button("Price"):
-    try:
-        with st.spinner("Simulating..."):
-            t0 = time.perf_counter()
-            result, paths = price_contract()
-            elapsed_ms = (time.perf_counter() - t0) * 1000
-    except ValueError as exc:
-        st.error(str(exc))
-        st.stop()
-
-    st.subheader("Result")
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Price", f"{result['price']:.4f}")
-    col2.metric("Std error", f"{result['stderr']:.5f}")
-    col3.metric("95% CI low", f"{result['ci_low']:.4f}")
-    col4.metric("95% CI high", f"{result['ci_high']:.4f}")
-    col5.metric("Runtime", f"{elapsed_ms:.0f} ms")
-
-    if contract == "European":
-        bs = bs_price(S0, K, T, r, sigma, option_type=option_type)
-        st.caption(f"Black-Scholes: **{bs:.4f}**  |  Error: {abs(result['price'] - bs):.5f}")
-    if contract == "Barrier":
-        st.caption(f"Barrier applied to the simulated paths: {result['extra']['barrier_used']:.4f}")
-        if barrier_type == "down_out" and option_type == "call":
-            cf = bs_down_and_out_call(S0, K, barrier, T, r, sigma)
-            st.caption(
-                f"Continuously monitored down-and-out call (closed form): **{cf:.4f}**  |  "
-                f"Difference: {result['price'] - cf:+.4f}"
-            )
-
-    if paths is not None:
-        disc = np.exp(-r * T)
-        if contract == "European":
-            payoffs = disc * european_payoff(paths[:, -1], K, option_type)
-        elif contract == "Asian arithmetic":
-            payoffs = disc * asian_arithmetic_payoff(paths, K, option_type)
-        else:
-            level = barrier_level_for_simulation(
-                S0,
-                barrier,
-                T,
-                sigma,
-                barrier_type=barrier_type,
-                steps=steps,
-                continuity_correction=continuity_correction,
-            )
+            level = barrier_level_for_simulation(S0, barrier, T, sigma, steps=steps, **barrier_args)
             payoffs = disc * barrier_payoff(paths, K, level, barrier_type, option_type)
 
-        fig, ax = plt.subplots(figsize=(8, 3))
-        ax.hist(payoffs[payoffs > 0], bins=60, color="steelblue", edgecolor="white", linewidth=0.3)
-        ax.axvline(
-            result["price"], color="crimson", linewidth=1.5, label=f"Mean = {result['price']:.3f}"
+    return result, payoffs, (time.perf_counter() - t0) * 1000
+
+
+if not fits_in_memory(n_paths, steps):
+    st.stop()
+
+try:
+    result, payoffs, elapsed_ms = price_contract(
+        contract,
+        option_type,
+        S0,
+        K,
+        T,
+        r,
+        sigma,
+        barrier,
+        barrier_type,
+        continuity_correction,
+        n_paths,
+        steps,
+        int(seed),
+        vr,
+    )
+except ValueError as exc:
+    st.error(str(exc))
+    st.stop()
+
+METHOD_LABELS = {
+    "None": "plain Monte Carlo",
+    "Antithetic": "antithetic sampling",
+    "Control variate": "control variate",
+}
+if contract == "Barrier":
+    priced = f"{BARRIER_LABELS[barrier_type]} {option_type}, barrier {barrier:g}"
+else:
+    priced = f"{contract} {option_type}"
+
+st.subheader("Result")
+st.caption(f"{priced} · {n_paths:,} paths · {steps} steps · {METHOD_LABELS[vr]}")
+col1, col2, col3 = st.columns(3)
+col1.metric("Price", f"{result['price']:.4f}")
+col2.metric("Std error", f"{result['stderr']:.5f}")
+col3.metric("Runtime", f"{elapsed_ms:.0f} ms")
+st.caption(f"95% confidence interval: {result['ci_low']:.4f} to {result['ci_high']:.4f}")
+
+
+def compare_caption(name, reference):
+    error = result["price"] - reference
+    in_se = f" ({error / result['stderr']:+.1f} standard errors)" if result["stderr"] > 0 else ""
+    st.caption(f"{name}: **{reference:.4f}**  |  Error: {error:+.5f}{in_se}")
+
+
+if contract == "European":
+    compare_caption("Black-Scholes", bs_price(S0, K, T, r, sigma, option_type=option_type))
+if contract == "Barrier":
+    st.caption(f"Barrier applied to the simulated paths: {result['extra']['barrier_used']:.4f}")
+    if option_type == "call" and barrier_type in ("down_out", "down_in"):
+        down_and_out = bs_down_and_out_call(S0, K, barrier, T, r, sigma)
+        if barrier_type == "down_out":
+            compare_caption("Continuously monitored down-and-out call (closed form)", down_and_out)
+        else:
+            compare_caption(
+                "Continuously monitored down-and-in call (Black-Scholes call minus down-and-out)",
+                bs_price(S0, K, T, r, sigma, option_type="call") - down_and_out,
+            )
+        if not continuity_correction:
+            st.caption(
+                "The gap is mainly the bias from checking the barrier on discrete dates only. "
+                "Tick the continuity correction to shrink it."
+            )
+
+positive = None if payoffs is None else payoffs[payoffs > 0]
+if payoffs is None:
+    st.info("The histogram is shown for plain Monte Carlo only.")
+elif positive.size == 0:
+    st.info("No simulated path pays anything, so there is no histogram to show.")
+else:
+    edge = float(np.quantile(positive, 0.995))
+    counts, edges = np.histogram(positive[positive <= edge], bins=60)
+    bins = pd.DataFrame({"start": edges[:-1], "end": edges[1:], "paths": counts})
+    bars = (
+        alt.Chart(bins)
+        # Rectangles from zero: a bar mark with x and x2 would be drawn horizontally.
+        .mark_rect(color="steelblue", stroke="white", strokeWidth=0.5)
+        .encode(
+            x=alt.X("start:Q", title="Discounted payoff"),
+            x2="end:Q",
+            y=alt.Y("paths:Q", title="Paths"),
+            y2=alt.datum(0),
+            tooltip=[
+                alt.Tooltip("start:Q", title="From", format=".2f"),
+                alt.Tooltip("end:Q", title="To", format=".2f"),
+                alt.Tooltip("paths:Q", title="Paths", format=","),
+            ],
         )
-        ax.set_xlabel("Discounted payoff")
-        ax.set_ylabel("Frequency")
-        ax.set_title("Payoff distribution (paths with positive payoff)")
-        ax.legend()
-        st.pyplot(fig)
-        plt.close(fig)
-    else:
-        st.info("The histogram is shown for plain Monte Carlo only.")
+    )
+    mean = (
+        alt.Chart(pd.DataFrame({"price": [result["price"]]}))
+        .mark_rule(color="crimson", strokeWidth=2)
+        .encode(x="price:Q", tooltip=[alt.Tooltip("price:Q", title="Price (mean)", format=".4f")])
+    )
+    show_chart(
+        (bars + mean).properties(
+            title=alt.Title("Payoff distribution", subtitle="Paths with a positive payoff")
+        )
+    )
+    st.caption(
+        f"{np.mean(payoffs == 0):.0%} of paths pay nothing and are left out. The red line is "
+        "the mean payoff, which is the price. The axis stops at the 99.5th percentile."
+    )

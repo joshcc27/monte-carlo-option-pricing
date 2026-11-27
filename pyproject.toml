@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mc-pricer"
-version = "0.1.0"
+version = "0.2.0"
 description = "Monte Carlo option pricing under GBM with variance reduction, Greeks and QMC"
 readme = "README.md"
 license = "MIT"
@@ -36,6 +36,8 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+# The app pages import app_common from the repository root.
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100

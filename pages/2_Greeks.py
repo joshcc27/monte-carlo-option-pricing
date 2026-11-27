@@ -1,115 +1,139 @@
-import matplotlib.pyplot as plt
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
 
+from app_common import market_inputs, show_chart, sidebar_hint, store_market, thousands
 from mc_pricer.greeks import mc_european_greeks
 from mc_pricer.rng import RNG
 
-st.set_page_config(page_title="Greeks", layout="wide")
 st.title("Greeks (European options)")
+sidebar_hint()
 
-with st.sidebar:
+GREEK_LABELS = {
+    "delta": "Delta",
+    "vega": "Vega",
+    "gamma": "Gamma",
+    "theta": "Theta (per year)",
+    "rho": "Rho",
+}
+
+with st.sidebar.form("inputs"):
     st.header("Parameters")
-    S0 = st.number_input("Spot S0", value=100.0, min_value=0.01, step=1.0)
-    K = st.number_input("Strike K", value=100.0, min_value=0.01, step=1.0)
-    r = st.number_input(
-        "Rate r", value=0.05, min_value=-0.10, max_value=0.30, step=0.005, format="%.3f"
-    )
-    T = st.number_input("Maturity T", value=1.0, min_value=0.01, step=0.25)
-    sigma = st.number_input(
-        "Vol σ", value=0.20, min_value=0.01, max_value=2.0, step=0.01, format="%.2f"
-    )
+    S0, K, T, r, sigma = market_inputs()
     option_type = st.radio("Side", ["call", "put"], horizontal=True)
     n_paths = st.select_slider(
-        "Paths", options=[10_000, 50_000, 100_000, 300_000, 1_000_000], value=300_000
-    )
-    steps = st.select_slider(
-        "Steps",
-        options=[1, 16, 64],
-        value=1,
-        help="A European payoff depends only on S_T and the GBM step is exact, "
-        "so one step gives the same answer as many.",
+        "Paths",
+        options=[10_000, 50_000, 100_000, 300_000, 1_000_000],
+        value=300_000,
+        format_func=thousands,
     )
     seed = st.number_input("Seed", value=42, step=1)
+    st.form_submit_button("Estimate Greeks", type="primary", on_click=store_market)
 
 st.caption(
-    "Delta and vega: pathwise estimator. Gamma, theta and rho: central finite "
-    "differences with common random numbers. Error bars are 95% intervals."
+    "Delta and vega: pathwise estimator. Gamma, theta and rho: central finite differences "
+    "with common random numbers. A European payoff depends only on the final price and the "
+    "GBM step is exact, so each path is simulated in one step. The chart shows how far each "
+    "estimate is from Black-Scholes in standard errors. About 95% should fall inside the "
+    "shaded band."
 )
 
-if st.button("Estimate Greeks"):
-    with st.spinner("Running Monte Carlo..."):
-        result = mc_european_greeks(
-            S0,
-            K,
-            T,
-            r,
-            sigma,
-            option_type=option_type,
-            steps=steps,
-            n_paths=n_paths,
-            rng=RNG(seed=int(seed)),
-        )
 
-    greeks_order = ["delta", "vega", "gamma", "theta", "rho"]
-    rows = []
-    for g in greeks_order:
-        block = result[g]
-        if "pathwise" in block:
-            method, mc_val, mc_se = "pathwise", block["pathwise"], block["pathwise_stderr"]
-        else:
-            method = "finite difference"
-            mc_val, mc_se = block["finite_difference"], block["finite_difference_stderr"]
-        an_val = block["analytic"]
-        rows.append(
-            {
-                "Greek": g.capitalize(),
-                "Method": method,
-                "MC": mc_val,
-                "Std error": mc_se,
-                "Analytic": an_val,
-                "Error / stderr": (mc_val - an_val) / mc_se if mc_se > 0 else np.nan,
-            }
-        )
-    table = pd.DataFrame(rows).set_index("Greek")
-
-    x = np.arange(len(table))
-    width = 0.35
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.bar(
-        x - width / 2,
-        table["MC"],
-        width,
-        yerr=1.96 * table["Std error"],
-        label="Monte Carlo",
-        color="steelblue",
-        capsize=4,
+@st.cache_data(max_entries=8, show_spinner="Running Monte Carlo...")
+def estimate_greeks(S0, K, T, r, sigma, option_type, n_paths, seed):
+    return mc_european_greeks(
+        S0,
+        K,
+        T,
+        r,
+        sigma,
+        option_type=option_type,
+        steps=1,
+        n_paths=n_paths,
+        rng=RNG(seed=seed),
     )
-    ax.bar(
-        x + width / 2, table["Analytic"], width, label="Black-Scholes", color="coral", alpha=0.85
-    )
-    ax.set_xticks(x)
-    ax.set_xticklabels(table.index)
-    ax.set_ylabel("Value")
-    ax.set_title("Monte Carlo Greeks vs Black-Scholes")
-    ax.legend()
-    ax.axhline(0, color="black", linewidth=0.6, linestyle="--")
-    st.pyplot(fig)
-    plt.close(fig)
 
-    st.dataframe(table.round(5), width="stretch")
 
-    st.subheader("Pathwise vs finite difference")
-    compare = pd.DataFrame(
+try:
+    result = estimate_greeks(S0, K, T, r, sigma, option_type, n_paths, int(seed))
+except ValueError as exc:
+    st.error(str(exc))
+    st.stop()
+
+rows = []
+for g, label in GREEK_LABELS.items():
+    block = result[g]
+    if "pathwise" in block:
+        method, mc_val, mc_se = "pathwise", block["pathwise"], block["pathwise_stderr"]
+    else:
+        method = "finite difference"
+        mc_val, mc_se = block["finite_difference"], block["finite_difference_stderr"]
+    an_val = block["analytic"]
+    rows.append(
         {
-            g.capitalize(): {
-                "Pathwise": result[g]["pathwise"],
-                "Pathwise stderr": result[g]["pathwise_stderr"],
-                "Finite difference": result[g]["finite_difference"],
-                "FD stderr": result[g]["finite_difference_stderr"],
-            }
-            for g in ("delta", "vega")
+            "Greek": label,
+            "Method": method,
+            "MC": mc_val,
+            "Std error": mc_se,
+            "Analytic": an_val,
+            "Error / stderr": (mc_val - an_val) / mc_se if mc_se > 0 else np.nan,
         }
-    ).T
-    st.dataframe(compare.round(5), width="stretch")
+    )
+table = pd.DataFrame(rows).set_index("Greek")
+
+# The chart uses the plain names, so the five labels fit across a phone screen.
+points = pd.DataFrame(
+    {
+        "Greek": [g.capitalize() for g in GREEK_LABELS],
+        "z": table["Error / stderr"].to_numpy(),
+        "MC": table["MC"].to_numpy(),
+        "Black-Scholes": table["Analytic"].to_numpy(),
+    }
+)
+z_scale = alt.Scale(domain=[min(-3.0, points["z"].min() - 0.5), max(3.0, points["z"].max() + 0.5)])
+z_title = "(MC − Black-Scholes) / std error"
+band = (
+    alt.Chart(pd.DataFrame({"low": [-1.96], "high": [1.96]}))
+    .mark_rect(color="grey", opacity=0.15)
+    .encode(y=alt.Y("low:Q", scale=z_scale, title=z_title), y2="high:Q")
+)
+zero = alt.Chart(pd.DataFrame({"z": [0.0]})).mark_rule(color="black").encode(y="z:Q")
+dots = (
+    alt.Chart(points)
+    .mark_circle(size=150, color="steelblue", opacity=1)
+    .encode(
+        x=alt.X("Greek:N", sort=list(points["Greek"]), title=None, axis=alt.Axis(labelAngle=0)),
+        y=alt.Y("z:Q", scale=z_scale, title=z_title),
+        tooltip=[
+            "Greek:N",
+            alt.Tooltip("z:Q", title="Std errors from Black-Scholes", format="+.2f"),
+            alt.Tooltip("MC:Q", format=".5f"),
+            alt.Tooltip("Black-Scholes:Q", format=".5f"),
+        ],
+    )
+)
+show_chart(
+    (band + zero + dots).properties(
+        title=alt.Title(
+            "Error of each Greek",
+            subtitle="In standard errors. The grey band is ±1.96.",
+        )
+    )
+)
+
+st.dataframe(table.round(5), width="stretch")
+
+st.subheader("Pathwise vs finite difference")
+compare = pd.DataFrame(
+    {
+        GREEK_LABELS[g]: {
+            "Pathwise": result[g]["pathwise"],
+            "Pathwise stderr": result[g]["pathwise_stderr"],
+            "Finite difference": result[g]["finite_difference"],
+            "FD stderr": result[g]["finite_difference_stderr"],
+        }
+        for g in ("delta", "vega")
+    }
+).T
+st.dataframe(compare.round(5), width="stretch")

@@ -1,0 +1,4 @@
+# The overview's benchmark figure is a PNG on white, so the app defaults to the light theme.
+# Viewers can still switch theme from the menu; the Altair charts follow it.
+[theme]
+base = "light"

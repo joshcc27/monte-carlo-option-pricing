@@ -4,7 +4,7 @@
 
 I wrote this library and Streamlit app to price European, arithmetic Asian, and barrier options by Monte Carlo under Black-Scholes assumptions. Each estimator is tested against a closed-form price where one exists, and against an independent estimator where it doesn't. For an arithmetic Asian call, the control variate cuts the paths needed for a one-cent 95% half-width from 4.8 million to about 4,000.
 
-**Try the app:** [joshcc27-monte-carlo-option-pricing-app-ozs8p4.streamlit.app](https://joshcc27-monte-carlo-option-pricing-app-ozs8p4.streamlit.app/)
+**The app:** [open it on Streamlit Community Cloud](https://joshcc27-monte-carlo-option-pricing-app-ozs8p4.streamlit.app/)
 
 The parts that took the most care:
 
@@ -31,13 +31,15 @@ All numbers come from the committed notebooks and script and are reproducible wi
 
 Sources: [notebooks/02](notebooks/02_asian_variance_reduction_benchmark.ipynb) for the Asian rows, [notebooks/01](notebooks/01_european_monte_carlo_convergence.ipynb) for the European rows, and [scripts/barrier_continuity_correction.py](scripts/barrier_continuity_correction.py) for the barrier row.
 
+![RMSE and mean reported standard error against path count for a European call and put](docs/european_convergence.png)
+
 ## Quick start
 
 Requires Python 3.11 or later and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync --extra dev                   # create .venv with the package and dev tools
-uv run pytest                         # 101 tests, about 10 seconds
+uv run pytest                         # 115 tests, about 30 seconds
 uv run streamlit run app.py           # web app at http://localhost:8501
 uv run python scripts/barrier_continuity_correction.py
 ```
@@ -52,13 +54,15 @@ uv run jupyter nbconvert --to notebook --execute --inplace notebooks/02_asian_va
 
 | Page | What it does |
 | --- | --- |
-| Pricer | Prices a European, arithmetic Asian or barrier option with plain, antithetic or (Asian only) control-variate sampling. Shows the payoff histogram, the Black-Scholes price for Europeans and the continuous closed form for down-and-out calls. |
-| Greeks | Delta, vega, gamma, theta and rho of a European option by Monte Carlo, against Black-Scholes, with 95% error bars. |
+| Pricer | Prices a European, arithmetic Asian or barrier option with plain, antithetic or (Asian only) control-variate sampling. Shows the payoff histogram, the Black-Scholes price for Europeans and the continuous closed form for down-and-out and down-and-in calls, with each error in standard errors. |
+| Greeks | Delta, vega, gamma, theta and rho of a European option by Monte Carlo, each compared with Black-Scholes in standard errors. |
 | Convergence | RMSE against path count (powers of two) for pseudo-random, Sobol and Sobol with Brownian bridge, over several seeds or scrambles. |
-| Variance Reduction | Standard error and variance reduction factor of plain, antithetic and control-variate estimators for an arithmetic Asian call. |
-| Binomial | CRR tree price of a European option and its convergence to Black-Scholes. |
+| Variance Reduction | Standard error, variance reduction factor, run time and efficiency gain of plain, antithetic and control-variate estimators for an arithmetic Asian call. |
+| Binomial | CRR tree prices of a European and an American option, the early-exercise premium, and convergence as the steps increase. |
 
-The app can be deployed from Streamlit Community Cloud with `app.py` as the entry point. Streamlit, Matplotlib and pandas are regular dependencies of the package, so a plain install is enough to run it.
+Every page shows a result for its default inputs as soon as it opens, and the market inputs carry over between pages. The charts are drawn with Altair, so they stay legible on a phone. Each simulation is capped at about 650 MB, so a request such as 500,000 paths × 252 steps is refused rather than crashing a free Community Cloud app.
+
+The app can be deployed from Streamlit Community Cloud with `app.py` as the entry point. Streamlit and pandas are regular dependencies of the package, and Altair comes with Streamlit, so a plain install is enough to run it.
 
 ## Library usage
 
@@ -99,24 +103,26 @@ Sobol points are scrambled and mapped to normals by the inverse CDF. With the Br
 
 Barriers are checked on the simulated dates only. The BGK correction moves the barrier towards spot by a factor $e^{0.5826\,\sigma\sqrt{\Delta t}}$. Barriers on the wrong side of spot are rejected.
 
-The Cox-Ross-Rubinstein tree uses $u = e^{\sigma\sqrt{\Delta t}}$ and raises an error when $e^{r\Delta t}$ falls outside $(d, u)$, where the risk-neutral probability would leave $[0, 1]$.
+The Cox-Ross-Rubinstein tree uses $u = e^{\sigma\sqrt{\Delta t}}$ and raises an error when $e^{r\Delta t}$ falls outside $(d, u)$, where the risk-neutral probability would leave $[0, 1]$. For American exercise, each node takes the larger of the continuation value and immediate exercise. Without dividends this never changes a call, which a test checks.
 
 ## Limitations
 
 - Barrier monitoring is discrete. Without the correction you get the price of a contract checked only on the simulated dates. The BGK correction reduces the error to a smaller order than $\sqrt{\Delta t}$, but it assumes equally spaced dates.
 - Greeks are for European options only. There are no Greeks for Asian or barrier options, where pathwise derivatives of the barrier indicator would need likelihood-ratio or smoothing methods.
-- The binomial tree prices European exercise only. Nothing in the project handles American or Bermudan exercise.
+- Only the binomial tree handles American exercise. The Monte Carlo pricers are European-style, and nothing in the project handles Bermudan exercise.
 - The standard error the pricers print assumes independent samples, so it means nothing for Sobol paths. Use the spread over several scrambles instead, as the Convergence page does. Sobol also needs path counts that are powers of two. Without the Brownian bridge, its advantage fades as the number of time steps grows.
 - The model is Black-Scholes with constant rate and volatility and no dividends.
 
 ## Repository layout
 
 ```text
-app.py                         Streamlit landing page
-pages/                         Streamlit pages (Pricer, Greeks, Convergence, Variance Reduction, Binomial)
+app.py                         Streamlit entry point: the page list and navigation
+app_common.py                  Page list, shared market inputs, memory check and chart display
+pages/                         Overview, Pricer, Greeks, Convergence, Variance Reduction, Binomial
+.streamlit/config.toml         Light theme, to match the overview's PNG figure
 src/mc_pricer/
     asian_geometric.py         Closed-form geometric Asian price (control variate mean)
-    binomial.py                CRR binomial tree, European exercise
+    binomial.py                CRR binomial tree, European and American exercise
     bs_analytics.py            Black-Scholes price and Greeks; continuous down-and-out call
     gbm.py                     GBM path simulation
     greeks.py                  Monte Carlo European Greeks, pathwise and finite difference
