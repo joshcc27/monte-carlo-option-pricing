@@ -96,3 +96,36 @@ def test_same_inputs_are_fine_with_enough_steps():
     # The condition is r * sqrt(dt) < sigma roughly, so more steps restore it.
     price = price_binomial(S0=100.0, K=100.0, T=1.0, r=0.25, sigma=0.01, steps=2000)
     assert price == pytest.approx(100.0 - 100.0 * math.exp(-0.25), abs=1e-3)
+
+
+# American put for the parameters above, from the same tree at 10,000 steps.
+AMERICAN_PUT_10000 = 6.0903
+
+
+def test_american_call_equals_european_call():
+    # Without dividends, exercising a call early is never optimal.
+    european = price_binomial(S0, K, T, r, sigma, steps=500, option_type="call")
+    american = price_binomial(
+        S0, K, T, r, sigma, steps=500, option_type="call", exercise="american"
+    )
+    assert american == pytest.approx(european, abs=1e-12)
+
+
+@pytest.mark.parametrize("spot", [80.0, 100.0, 120.0])
+def test_american_put_is_worth_at_least_european_and_intrinsic(spot):
+    european = price_binomial(spot, K, T, r, sigma, steps=500, option_type="put")
+    american = price_binomial(
+        spot, K, T, r, sigma, steps=500, option_type="put", exercise="american"
+    )
+    assert american > european
+    assert american >= max(K - spot, 0.0)
+
+
+def test_american_put_converges():
+    price = price_binomial(S0, K, T, r, sigma, steps=2000, option_type="put", exercise="american")
+    assert abs(price - AMERICAN_PUT_10000) < 0.002
+
+
+def test_rejects_invalid_exercise():
+    with pytest.raises(ValueError, match="exercise"):
+        price_binomial(S0, K, T, r, sigma, steps=100, exercise="bermudan")
