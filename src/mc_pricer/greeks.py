@@ -19,83 +19,25 @@ from .validation import normalise_option_type, validate_positive, validate_posit
 
 
 def _pathwise_delta(ST, S0, K, option_type, discount):
-    """Return pathwise Monte Carlo delta samples for European options.
-
-    Parameters
-    ----------
-    ST : numpy.ndarray
-        Terminal prices for all paths.
-    S0 : float
-        Initial spot price.
-    K : float
-        Strike price.
-    option_type : str
-        Canonical option side: ``"call"`` or ``"put"``.
-    discount : float
-        Present-value discount factor ``exp(-rT)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Discounted pathwise delta samples.
-    """
-    # Under GBM, dST/dS0 = ST/S0 path by path.
+    """Discounted pathwise delta samples. Under GBM, dST/dS0 = ST/S0 on every path."""
     dST_dS0 = ST / S0
     if option_type == "call":
-        # Call delta sample: 1{ST > K} * dST/dS0.
-        indicator = (ST > K).astype(float)
-        samples = indicator * dST_dS0
+        samples = (ST > K).astype(float) * dST_dS0
     else:
-        # Put delta sample: -1{ST < K} * dST/dS0.
-        indicator = (ST < K).astype(float)
-        samples = -indicator * dST_dS0
-    # Discount derivative samples back to valuation time.
+        samples = -(ST < K).astype(float) * dST_dS0
     return discount * samples
 
 
 def _pathwise_vega(ST, sigma, T, steps, shocks, K, option_type, discount):
-    """Return pathwise Monte Carlo vega samples for European options.
-
-    Parameters
-    ----------
-    ST : numpy.ndarray
-        Terminal prices for all paths.
-    sigma : float
-        Volatility (annualised, decimal).
-    T : float
-        Time to maturity in years.
-    steps : int
-        Number of time increments in the path simulation.
-    shocks : numpy.ndarray
-        Standard-normal shocks used to generate paths, shape ``(n_paths, steps)``.
-    K : float
-        Strike price.
-    option_type : str
-        Canonical option side: ``"call"`` or ``"put"``.
-    discount : float
-        Present-value discount factor ``exp(-rT)``.
-
-    Returns
-    -------
-    numpy.ndarray
-        Discounted pathwise vega samples.
-    """
+    """Discounted pathwise vega samples, from the shocks that generated ``ST``."""
     dt = T / steps
-    # For Euler log-GBM scheme, derivative of log ST wrt sigma is:
-    # d log ST / d sigma = -sigma*T + sqrt(dt) * sum_t Z_t.
-    sum_shocks = np.sum(shocks, axis=1)
-    dlog_dsigma = -sigma * T + np.sqrt(dt) * sum_shocks
+    # In log space, d log ST / d sigma = -sigma*T + sqrt(dt) * sum_t Z_t.
+    dlog_dsigma = -sigma * T + np.sqrt(dt) * np.sum(shocks, axis=1)
     dST_dsigma = ST * dlog_dsigma
-
     if option_type == "call":
-        # Call vega sample: 1{ST > K} * dST/dsigma.
-        indicator = (ST > K).astype(float)
-        samples = indicator * dST_dsigma
+        samples = (ST > K).astype(float) * dST_dsigma
     else:
-        # Put vega sample: -1{ST < K} * dST/dsigma.
-        indicator = (ST < K).astype(float)
-        samples = -indicator * dST_dsigma
-    # Discount derivative samples back to valuation time.
+        samples = -(ST < K).astype(float) * dST_dsigma
     return discount * samples
 
 

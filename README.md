@@ -2,17 +2,17 @@
 
 [![Tests](https://github.com/joshcc27/monte-carlo-option-pricing/actions/workflows/tests.yml/badge.svg)](https://github.com/joshcc27/monte-carlo-option-pricing/actions/workflows/tests.yml)
 
-I wrote this library and Streamlit app to price European, arithmetic Asian, and barrier options by Monte Carlo under Black-Scholes assumptions. Every estimator is checked against a closed-form price.
+I wrote this library and Streamlit app to price European, arithmetic Asian, and barrier options by Monte Carlo under Black-Scholes assumptions. Each estimator is tested against a closed-form price where one exists, and against an independent estimator where it doesn't. For an arithmetic Asian call, the control variate cuts the paths needed for a one-cent 95% half-width from 4.8 million to about 4,000.
 
 **Try the app:** [joshcc27-monte-carlo-option-pricing-app-ozs8p4.streamlit.app](https://joshcc27-monte-carlo-option-pricing-app-ozs8p4.streamlit.app/)
 
 The parts that took the most care:
 
-- **Greeks two ways.** Pathwise derivatives, and finite differences with common random numbers, both compared with Black-Scholes.
-- **Antithetic sampling.** The standard error comes from pair means, because the two paths in a pair aren't independent.
-- **A control variate for the Asian option.** The geometric Asian has an exact price, so it makes a strong control for the arithmetic one.
-- **Sobol sampling.** An optional Brownian-bridge construction, with error measured across independent scrambles.
-- **Barrier options.** These are monitored at discrete dates, with an optional Broadie-Glasserman-Kou correction to approximate continuous monitoring.
+- Greeks by pathwise derivatives and by finite differences with common random numbers, both compared with Black-Scholes.
+- Antithetic sampling, with the standard error taken over pair means because the two paths in a pair aren't independent.
+- A control variate for the arithmetic Asian option. The geometric Asian has an exact price and moves almost in step with the arithmetic one, so it makes a strong control.
+- Sobol sampling, with an optional Brownian-bridge construction and the error measured across independent scrambles.
+- Barrier options monitored at discrete dates, with an optional Broadie-Glasserman-Kou correction to approximate continuous monitoring.
 
 ![Standard error and variance reduction factor for an arithmetic Asian call](docs/asian_variance_reduction.png)
 
@@ -59,7 +59,6 @@ uv run jupyter nbconvert --to notebook --execute --inplace notebooks/02_asian_va
 | Binomial | CRR tree price of a European option and its convergence to Black-Scholes. |
 
 The app can be deployed from Streamlit Community Cloud with `app.py` as the entry point. Streamlit, Matplotlib and pandas are regular dependencies of the package, so a plain install is enough to run it.
-
 
 ## Library usage
 
