@@ -18,28 +18,20 @@ def price_binomial(S0, K, T, r, sigma, *, steps, option_type="call", exercise="e
 
     Parameters
     ----------
-    S0, K : float
-        Spot and strike.
-    T : float
-        Maturity in years.
-    r : float
-        Continuously compounded risk-free rate.
-    sigma : float
-        Volatility (annualised, decimal).
     steps : int
         Number of time steps.
     option_type : str
-        ``"call"`` or ``"put"`` (case-insensitive).
+        ``"call"`` or ``"put"``, case-insensitive.
     exercise : str
-        ``"european"`` (the default) or ``"american"`` (case-insensitive).
+        ``"european"`` or ``"american"``, case-insensitive.
 
     Raises
     ------
     ValueError
-        If numeric inputs are not positive, ``option_type`` or ``exercise`` is
-        invalid, or the tree admits arbitrage (``d < exp(r * dt) < u`` fails, so ``p`` is
-        outside ``(0, 1)``). The last case happens when ``|r| * sqrt(dt)`` is
-        large relative to ``sigma``; more steps fixes it.
+        If a numeric input is not positive, ``option_type`` or ``exercise`` is invalid, or
+        the tree admits arbitrage (``d < exp(r * dt) < u`` fails, so ``p`` is outside
+        ``(0, 1)``). The last case happens when ``|r| * sqrt(dt)`` is large relative to
+        ``sigma``, and more steps fix it.
     TypeError
         If ``steps`` is not an integer.
     """

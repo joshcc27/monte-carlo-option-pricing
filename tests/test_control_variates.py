@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from scipy.stats import norm
 
 from mc_pricer.asian_geometric import geometric_parameters, monitoring_times, price_geometric_asian
 from mc_pricer.bs_analytics import bs_price
@@ -9,11 +10,8 @@ from mc_pricer.gbm import simulate_gbm_paths
 from mc_pricer.mc import mc_price_asian_arithmetic
 from mc_pricer.mc_results import build_result_iid, discount_payoffs
 from mc_pricer.payoffs import asian_arithmetic_payoff, asian_geometric_payoff
+from mc_pricer.rng import RNG
 from mc_pricer.variance_reduction import control_variate, mc_price_asian_arithmetic_cv
-
-# ---------------------------------------------------------------------------
-# Geometric Asian closed form
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("option_type", ["call", "put"])
@@ -44,8 +42,6 @@ def test_geometric_asian_approaches_continuous_average_limit():
     S0, K, T, r, sigma = 100.0, 100.0, 1.0, 0.05, 0.2
     var_c = sigma**2 * T / 3
     mean_c = np.log(S0) + 0.5 * (r - 0.5 * sigma**2) * T
-    from scipy.stats import norm
-
     d1 = (mean_c - np.log(K) + var_c) / np.sqrt(var_c)
     d2 = d1 - np.sqrt(var_c)
     kv = np.exp(-r * T) * (np.exp(mean_c + 0.5 * var_c) * norm.cdf(d1) - K * norm.cdf(d2))
@@ -54,11 +50,11 @@ def test_geometric_asian_approaches_continuous_average_limit():
 
 
 @pytest.mark.parametrize("option_type", ["call", "put"])
-def test_geometric_closed_form_matches_monte_carlo(asian_market, make_rng, option_type):
+def test_geometric_closed_form_matches_monte_carlo(asian_market, option_type):
     m = asian_market
     steps, n_paths = 12, 400_000
     paths = simulate_gbm_paths(
-        m["S0"], m["T"], m["r"], m["sigma"], steps=steps, n_paths=n_paths, rng=make_rng(5)
+        m["S0"], m["T"], m["r"], m["sigma"], steps=steps, n_paths=n_paths, rng=RNG(seed=5)
     )
     discounted = discount_payoffs(
         asian_geometric_payoff(paths, m["K"], option_type), T=m["T"], r=m["r"]
@@ -70,11 +66,6 @@ def test_geometric_closed_form_matches_monte_carlo(asian_market, make_rng, optio
 
 def test_monitoring_times_exclude_zero():
     np.testing.assert_allclose(monitoring_times(1.0, 4), [0.25, 0.5, 0.75, 1.0])
-
-
-# ---------------------------------------------------------------------------
-# Control variate
-# ---------------------------------------------------------------------------
 
 
 def test_control_variate_helper_matches_manual_formula():
@@ -99,10 +90,10 @@ def test_control_variate_rejects_shape_mismatch():
         control_variate([1.0, 2.0], [1.0], 0.0)
 
 
-def test_cv_result_schema(asian_market, make_rng):
+def test_cv_result_schema(asian_market):
     m = asian_market
     result = mc_price_asian_arithmetic_cv(
-        **m, steps=32, n_paths=10_000, rng=make_rng(1), option_type="call"
+        **m, steps=32, n_paths=10_000, rng=RNG(seed=1), option_type="call"
     )
     assert set(result) == {"price", "stderr", "ci_low", "ci_high", "n_paths", "extra"}
     assert result["n_paths"] == 10_000
@@ -114,7 +105,7 @@ def test_cv_result_schema(asian_market, make_rng):
 
 
 @pytest.mark.parametrize("option_type", ["call", "put"])
-def test_cv_price_agrees_with_plain_mc_and_reduces_stderr(asian_market, make_rng, option_type):
+def test_cv_price_agrees_with_plain_mc_and_reduces_stderr(asian_market, option_type):
     # Independent seeds, so the two estimates are independent and their
     # difference has variance stderr_plain^2 + stderr_cv^2.
     m = asian_market
@@ -126,25 +117,23 @@ def test_cv_price_agrees_with_plain_mc_and_reduces_stderr(asian_market, make_rng
         sigma=m["sigma"],
         steps=steps,
         n_paths=n_paths,
-        rng=make_rng(77),
+        rng=RNG(seed=77),
     )
-    plain = mc_price_asian_arithmetic(
-        paths, K=m["K"], T=m["T"], r=m["r"], option_type=option_type
-    )
+    plain = mc_price_asian_arithmetic(paths, K=m["K"], T=m["T"], r=m["r"], option_type=option_type)
     cv = mc_price_asian_arithmetic_cv(
-        **m, steps=steps, n_paths=n_paths, rng=make_rng(78), option_type=option_type
+        **m, steps=steps, n_paths=n_paths, rng=RNG(seed=78), option_type=option_type
     )
     combined = np.hypot(plain["stderr"], cv["stderr"])
     assert abs(cv["price"] - plain["price"]) < 3 * combined
     assert plain["stderr"] / cv["stderr"] > 5
 
 
-def test_cv_same_paths_gives_large_variance_reduction(asian_market, make_rng):
+def test_cv_same_paths_gives_large_variance_reduction(asian_market):
     # On the same paths the arithmetic and geometric payoffs are almost
     # perfectly correlated for this contract.
     m = asian_market
     paths = simulate_gbm_paths(
-        S0=m["S0"], T=m["T"], r=m["r"], sigma=m["sigma"], steps=64, n_paths=100_000, rng=make_rng(3)
+        S0=m["S0"], T=m["T"], r=m["r"], sigma=m["sigma"], steps=64, n_paths=100_000, rng=RNG(seed=3)
     )
     x = discount_payoffs(asian_arithmetic_payoff(paths, m["K"], "call"), T=m["T"], r=m["r"])
     y = discount_payoffs(asian_geometric_payoff(paths, m["K"], "call"), T=m["T"], r=m["r"])

@@ -4,7 +4,7 @@ Prices the contract with 4 to 252 monitoring dates, with and without the
 Broadie-Glasserman-Kou continuity correction, and compares each price with
 the continuously monitored closed form. Prints a Markdown table.
 
-Run with:  uv run python scripts/barrier_continuity_correction.py
+Run with: uv run python scripts/barrier_continuity_correction.py
 """
 
 from mc_pricer import RNG, bs_down_and_out_call, mc_price_barrier, simulate_gbm_paths
@@ -19,11 +19,11 @@ def main():
     print(f"Continuous closed form: {closed:.4f}   ({N_PATHS:,} paths per row)\n")
     print("| dates | discrete MC | error | BGK-corrected MC | error | stderr |")
     print("|---:|---:|---:|---:|---:|---:|")
+    contract = {"barrier_type": "down_out", "option_type": "call"}
     for steps in (4, 12, 52, 252):
         paths = simulate_gbm_paths(
             S0, T, r, sigma, steps=steps, n_paths=N_PATHS, rng=RNG(seed=steps)
         )
-        contract = {"barrier_type": "down_out", "option_type": "call"}
         plain = mc_price_barrier(paths, K, H, T, r, **contract)
         bgk = mc_price_barrier(
             paths, K, H, T, r, **contract, sigma=sigma, continuity_correction=True

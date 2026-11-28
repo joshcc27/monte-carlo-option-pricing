@@ -12,13 +12,12 @@ T = 1.0
 r = 0.05
 sigma = 0.2
 
-# Black-Scholes ATM call reference (Hull Figure 13.3).
+# Black-Scholes prices for these inputs.
 BS_CALL = 10.450583572185565
 BS_PUT = 5.573526022256971
 
 
 def test_call_converges_to_bs_at_high_steps():
-    # At 2000 steps the CRR price should be within 2 cents of Black-Scholes.
     price = price_binomial(S0, K, T, r, sigma, steps=2000, option_type="call")
     assert abs(price - BS_CALL) < 0.02
 
@@ -29,7 +28,7 @@ def test_put_converges_to_bs_at_high_steps():
 
 
 def test_put_call_parity():
-    # C - P = S0 - K * exp(-rT) must hold for European options.
+    # C - P = S0 - K exp(-rT)
     call = price_binomial(S0, K, T, r, sigma, steps=1000, option_type="call")
     put = price_binomial(S0, K, T, r, sigma, steps=1000, option_type="put")
     parity_rhs = S0 - K * math.exp(-r * T)
@@ -37,7 +36,6 @@ def test_put_call_parity():
 
 
 def test_error_decreases_with_more_steps():
-    # Absolute errors at 10, 50, 200, 1000 steps should be monotonically decreasing.
     step_counts = [10, 50, 200, 1000]
     errors = [abs(price_binomial(S0, K, T, r, sigma, steps=n) - BS_CALL) for n in step_counts]
     for i in range(len(errors) - 1):
@@ -86,14 +84,13 @@ def test_rejects_invalid_option_type():
 
 
 def test_rejects_tree_with_risk_neutral_probability_outside_unit_interval():
-    # sigma * sqrt(dt) = 0.125 and r * dt = 0.5: exp(r * dt) > u, so p > 1.
-    # Before the check this returned 109 for an at-the-money call.
+    # sigma * sqrt(dt) = 0.125 and r * dt = 0.5, so exp(r * dt) > u and p > 1.
     with pytest.raises(ValueError, match="arbitrage-free"):
         price_binomial(S0=100.0, K=100.0, T=1.0, r=0.25, sigma=0.01, steps=2)
 
 
 def test_same_inputs_are_fine_with_enough_steps():
-    # The condition is r * sqrt(dt) < sigma roughly, so more steps restore it.
+    # The condition is roughly r * sqrt(dt) < sigma, so more steps restore it.
     price = price_binomial(S0=100.0, K=100.0, T=1.0, r=0.25, sigma=0.01, steps=2000)
     assert price == pytest.approx(100.0 - 100.0 * math.exp(-0.25), abs=1e-3)
 

@@ -1,7 +1,7 @@
-"""Vectorised payoff functions applied to simulated prices before discounting.
+"""Payoffs of simulated prices, before discounting, and the barrier checks they rely on.
 
-Path-dependent payoffs take a path matrix of shape ``(n_paths, steps + 1)``
-where column 0 is ``S0`` and columns ``1:`` are the monitoring dates.
+Path-dependent payoffs take a path matrix of shape ``(n_paths, steps + 1)`` with ``S0`` in
+column 0 and the monitoring dates in columns ``1:``.
 """
 
 import numpy as np
@@ -22,20 +22,43 @@ def european_payoff(ST, K, option_type):
     return np.maximum(K - ST, 0.0)
 
 
-def validate_barrier(barrier_type, barrier, S0):
-    """Check the barrier type and that the barrier sits on the correct side of spot.
+def asian_arithmetic_payoff(paths, K, option_type):
+    """Return the payoff on the arithmetic average of columns ``1:``, which leaves out ``S0``."""
+    if paths.shape[1] < 2:
+        raise ValueError("paths must include at least one monitoring date beyond S0")
+    avg_prices = paths[:, 1:].mean(axis=1)
+    return european_payoff(avg_prices, K, option_type)
 
-    An up barrier must be above ``S0`` and a down barrier below it. Otherwise
-    the contract is knocked in or out at inception, which is almost always an
-    input mistake.
 
-    Returns the lower-cased barrier type.
+def asian_geometric_payoff(paths, K, option_type):
+    """Return the payoff on the geometric average of columns ``1:``.
+
+    Its expectation has a closed form (``asian_geometric.price_geometric_asian``), which makes
+    it the control variate for the arithmetic Asian.
     """
+    if paths.shape[1] < 2:
+        raise ValueError("paths must include at least one monitoring date beyond S0")
+    geo_avg = np.exp(np.mean(np.log(paths[:, 1:]), axis=1))
+    return european_payoff(geo_avg, K, option_type)
+
+
+def _check_barrier_type(barrier_type):
     bt = barrier_type.lower()
     if bt not in BARRIER_TYPES:
         raise ValueError(
             f"barrier_type must be one of {sorted(BARRIER_TYPES)}, got '{barrier_type}'"
         )
+    return bt
+
+
+def validate_barrier(barrier_type, barrier, S0):
+    """Check the barrier type and that the barrier is on the right side of spot.
+
+    An up barrier must be above ``S0`` and a down barrier below it. Otherwise the contract is
+    knocked in or out at inception, which is almost always an input mistake. Returns the
+    lower-cased barrier type.
+    """
+    bt = _check_barrier_type(barrier_type)
     if bt.startswith("up") and not barrier > S0:
         raise ValueError(f"up barrier must be above S0 (barrier={barrier}, S0={S0})")
     if bt.startswith("down") and not barrier < S0:
@@ -44,58 +67,70 @@ def validate_barrier(barrier_type, barrier, S0):
 
 
 def bgk_adjusted_barrier(barrier, sigma, dt, barrier_type):
-    """Return the barrier to simulate so discrete monitoring mimics continuous.
+    """Return the barrier to simulate so that discrete monitoring mimics continuous.
 
-    Broadie, Glasserman and Kou (1997) show that a barrier ``H`` checked every
-    ``dt`` prices like a continuously monitored barrier moved *away* from spot
-    by ``exp(0.5826 * sigma * sqrt(dt))``. To approximate the continuous
-    contract with a discrete simulation, the simulated barrier is moved
-    *towards* spot by the same factor:
+    Broadie, Glasserman and Kou (1997) show that a barrier ``H`` checked every ``dt`` prices
+    like a continuously monitored barrier moved away from spot by
+    ``exp(0.5826 * sigma * sqrt(dt))``. To approximate the continuous contract, the simulated
+    barrier is moved towards spot by the same factor:
 
     - up barrier:   ``H * exp(-0.5826 * sigma * sqrt(dt))``
     - down barrier: ``H * exp(+0.5826 * sigma * sqrt(dt))``
 
     The error after correction is ``o(sqrt(dt))`` instead of ``O(sqrt(dt))``.
     """
-    bt = barrier_type.lower()
-    if bt not in BARRIER_TYPES:
-        raise ValueError(
-            f"barrier_type must be one of {sorted(BARRIER_TYPES)}, got '{barrier_type}'"
-        )
+    bt = _check_barrier_type(barrier_type)
     shift = BGK_BETA * sigma * np.sqrt(dt)
     if bt.startswith("up"):
         return barrier * np.exp(-shift)
     return barrier * np.exp(shift)
 
 
-def barrier_payoff(paths, K, barrier, barrier_type, option_type):
-    """Return knock-in / knock-out payoffs from full simulated paths.
+def barrier_level_for_simulation(
+    S0, barrier, T, sigma, *, barrier_type, steps, continuity_correction
+):
+    """Validate a barrier contract and return the level to check on the simulated paths.
 
-    Monitoring is discrete: the barrier is checked only at the simulated dates
-    (columns ``1:``), not between them. A path that crosses the barrier and
-    comes back between two dates is not detected, so a discretely monitored
-    knock-out is worth more than its continuously monitored counterpart (and a
-    knock-in less). Use ``bgk_adjusted_barrier`` to approximate continuous
-    monitoring.
-
-    Parameters
-    ----------
-    paths : numpy.ndarray
-        Path matrix of shape ``(n_paths, n_times)``; column 0 is ``S0``.
-    K : float
-        Strike.
-    barrier : float
-        Barrier level. Up barriers must be above ``S0``, down barriers below.
-    barrier_type : str
-        ``"up_out"``, ``"up_in"``, ``"down_out"`` or ``"down_in"``.
-    option_type : str
-        ``"call"`` or ``"put"``.
+    That level is ``barrier`` itself, or with ``continuity_correction`` the BGK-shifted
+    barrier for the monitoring interval ``T / steps``.
 
     Raises
     ------
     ValueError
-        If the path matrix has fewer than two columns, the barrier type is
-        unknown, or the barrier is on the wrong side of ``S0``.
+        If the barrier is on the wrong side of ``S0``, ``sigma`` is missing when the correction
+        is requested, or the shifted barrier crosses ``S0`` (too few monitoring dates for the
+        correction to make sense).
+    """
+    bt = validate_barrier(barrier_type, barrier, S0)
+    if not continuity_correction:
+        return barrier
+    if sigma is None:
+        raise ValueError("sigma is required when continuity_correction=True")
+    level = bgk_adjusted_barrier(barrier, sigma, T / steps, bt)
+    if (bt.startswith("up") and level <= S0) or (bt.startswith("down") and level >= S0):
+        raise ValueError(
+            f"continuity-corrected barrier {level:.4f} crosses S0={S0}; "
+            "increase steps or disable the correction"
+        )
+    return level
+
+
+def barrier_payoff(paths, K, barrier, barrier_type, option_type):
+    """Return knock-in or knock-out payoffs from simulated paths.
+
+    The barrier is checked only on the simulated dates (columns ``1:``). A path that crosses
+    the barrier and comes back between two dates is missed, so a discretely monitored
+    knock-out is worth more than a continuously monitored one, and a knock-in less. Use
+    ``bgk_adjusted_barrier`` to approximate continuous monitoring.
+
+    Parameters
+    ----------
+    paths : numpy.ndarray
+        Path matrix of shape ``(n_paths, steps + 1)``, with ``S0`` in column 0.
+    barrier : float
+        Barrier level. Up barriers must be above ``S0`` and down barriers below.
+    barrier_type : str
+        ``"up_out"``, ``"up_in"``, ``"down_out"`` or ``"down_in"``.
     """
     paths = np.asarray(paths, dtype=float)
     if paths.ndim != 2 or paths.shape[1] < 2:
@@ -113,28 +148,3 @@ def barrier_payoff(paths, K, barrier, barrier_type, option_type):
     if bt.endswith("out"):
         return np.where(crossed, 0.0, vanilla)
     return np.where(crossed, vanilla, 0.0)
-
-
-def asian_arithmetic_payoff(paths, K, option_type):
-    """Return the arithmetic-average Asian payoff.
-
-    The average runs over columns ``1:`` (the monitoring dates), excluding
-    ``S0``.
-    """
-    if paths.shape[1] < 2:
-        raise ValueError("paths must include at least one monitoring date beyond S0")
-    avg_prices = paths[:, 1:].mean(axis=1)
-    return european_payoff(avg_prices, K, option_type)
-
-
-def asian_geometric_payoff(paths, K, option_type):
-    """Return the geometric-average Asian payoff over columns ``1:``.
-
-    Its expectation is known in closed form
-    (``asian_geometric.price_geometric_asian``), which makes it the control
-    variate for the arithmetic Asian.
-    """
-    if paths.shape[1] < 2:
-        raise ValueError("paths must include at least one monitoring date beyond S0")
-    geo_avg = np.exp(np.mean(np.log(paths[:, 1:]), axis=1))
-    return european_payoff(geo_avg, K, option_type)

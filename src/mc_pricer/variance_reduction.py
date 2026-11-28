@@ -1,72 +1,55 @@
-"""Variance reduction: antithetic variates and control variates.
+"""Antithetic variates and control variates.
 
-- Antithetic variates pair each shock row ``Z`` with ``-Z``. The two paths in
-  a pair are dependent, so the standard error is computed from the
-  ``n_paths / 2`` pair means (``mc_results.build_result_antithetic``), not
-  from the raw paths.
-- Control variates adjust a target sample ``X`` with a correlated sample
-  ``Y`` of known mean: ``X - b (Y - E[Y])`` with ``b = Cov(X, Y) / Var(Y)``.
-  For the arithmetic Asian the control is the geometric Asian payoff, whose
-  price is known in closed form.
+Antithetic sampling pairs each shock row ``Z`` with ``-Z``. The two paths in a pair are
+dependent, so the standard error comes from the ``n_paths / 2`` pair means.
+
+A control variate adjusts target samples ``X`` with correlated samples ``Y`` of known mean,
+``X - b (Y - E[Y])`` with ``b = Cov(X, Y) / Var(Y)``. For the arithmetic Asian the control is
+the geometric Asian payoff, whose price is known in closed form.
 """
 
 import numpy as np
 
 from .asian_geometric import price_geometric_asian
 from .gbm import simulate_gbm_paths
-from .mc import barrier_level_for_simulation
-from .mc_results import build_result_antithetic, build_result_iid, discount_payoffs
+from .mc_results import (
+    build_result_antithetic,
+    build_result_iid,
+    discount_payoffs,
+    standard_error,
+)
 from .payoffs import (
     asian_arithmetic_payoff,
     asian_geometric_payoff,
+    barrier_level_for_simulation,
     barrier_payoff,
     european_payoff,
 )
 from .validation import normalise_option_type
 
 
-def _antithetic_shocks(rng, n_paths, steps):
-    """Return shocks of shape ``(n_paths, steps)`` arranged as ``[Z, -Z]``.
+def simulate_gbm_paths_antithetic(S0, T, r, sigma, *, steps, n_paths, rng):
+    """Simulate GBM paths from shocks arranged as ``[Z, -Z]``.
 
-    Raises ``ValueError`` if ``n_paths`` is odd.
+    Rows ``i`` and ``i + n_paths // 2`` are an antithetic pair, so ``n_paths`` must be even.
     """
     if n_paths % 2 != 0:
         raise ValueError("Antithetic variates require an even number of paths")
-    half = n_paths // 2
-    z_half = rng.normal(size=(half, steps))
-    return np.concatenate([z_half, -z_half], axis=0)
-
-
-def simulate_gbm_paths_antithetic(S0, T, r, sigma, *, steps, n_paths, rng):
-    """Simulate GBM paths from antithetic shocks.
-
-    Returns a matrix of shape ``(n_paths, steps + 1)``. Row ``i`` and row
-    ``i + n_paths // 2`` are an antithetic pair. ``n_paths`` must be even.
-    """
-    shocks = _antithetic_shocks(rng, n_paths, steps)
+    z = rng.normal(size=(n_paths // 2, steps))
+    shocks = np.concatenate([z, -z], axis=0)
     return simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, shocks=shocks)
 
 
 def mc_price_european_antithetic(S0, K, T, r, sigma, *, steps, n_paths, rng, option_type):
-    """Price a European option with antithetic sampling.
-
-    ``n_paths`` counts both members of each pair and must be even. The
-    standard error is computed from pair means.
-    """
+    """Price a European option with antithetic sampling. ``n_paths`` must be even."""
     paths = simulate_gbm_paths_antithetic(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
     payoffs = european_payoff(paths[:, -1], K, option_type)
     discounted = discount_payoffs(payoffs, T, r)
     return build_result_antithetic(discounted, extra={"variance_reduction": "antithetic"})
 
 
-def mc_price_asian_arithmetic_antithetic(
-    S0, K, T, r, sigma, *, steps, n_paths, rng, option_type
-):
-    """Price an arithmetic-average Asian option with antithetic sampling.
-
-    ``n_paths`` counts both members of each pair and must be even. The
-    standard error is computed from pair means.
-    """
+def mc_price_asian_arithmetic_antithetic(S0, K, T, r, sigma, *, steps, n_paths, rng, option_type):
+    """Price an arithmetic Asian option with antithetic sampling. ``n_paths`` must be even."""
     paths = simulate_gbm_paths_antithetic(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)
     payoffs = asian_arithmetic_payoff(paths, K, option_type)
     discounted = discount_payoffs(payoffs, T, r)
@@ -91,9 +74,8 @@ def mc_price_barrier_antithetic(
     """Price a discretely monitored barrier option with antithetic sampling.
 
     Monitoring, validation and the optional continuity correction follow
-    ``mc.mc_price_barrier``. The barrier indicator is not monotone in the
-    shocks, so the gain from antithetic pairing is usually smaller than for a
-    vanilla option.
+    ``mc.mc_price_barrier``. The barrier indicator is not monotone in the shocks, so the gain
+    from pairing is usually smaller than for a vanilla option.
     """
     level = barrier_level_for_simulation(
         S0,
@@ -113,7 +95,7 @@ def mc_price_barrier_antithetic(
 
 
 def _control_variate_samples(X, Y, EY):
-    """Return ``(X - b (Y - EY), b)`` with ``b`` the sample-optimal coefficient."""
+    """Return ``(X - b (Y - EY), b)``, with ``b`` fitted on the same samples."""
     X = np.asarray(X, dtype=float)
     Y = np.asarray(Y, dtype=float)
     if X.shape != Y.shape:
@@ -140,43 +122,36 @@ def control_variate(X, Y, EY):
     Parameters
     ----------
     X : array-like
-        Target samples (for example discounted arithmetic Asian payoffs).
+        Target samples, for example discounted arithmetic Asian payoffs.
     Y : array-like
-        Control samples, same shape as ``X``.
+        Control samples, the same shape as ``X``.
     EY : float
         Known expectation of ``Y``.
 
     Returns
     -------
     tuple[float, float, float]
-        ``(estimate, stderr, b)`` for the adjusted samples
-        ``X - b (Y - EY)``, with ``b = Cov(X, Y) / Var(Y)`` estimated from the
-        same samples. Estimating ``b`` in-sample adds a bias of order
-        ``1 / n``, which is negligible at the path counts used here.
-
-    Raises
-    ------
-    ValueError
-        If ``X`` and ``Y`` differ in shape, are not 1D, or are empty.
+        ``(estimate, stderr, b)`` for the adjusted samples ``X - b (Y - EY)``, with
+        ``b = Cov(X, Y) / Var(Y)`` estimated from the same samples. Fitting ``b`` in-sample
+        adds a bias of order ``1 / n``, which is negligible at the path counts used here.
     """
     adjusted, b = _control_variate_samples(X, Y, EY)
-    stderr = adjusted.std(ddof=1) / np.sqrt(adjusted.size) if adjusted.size > 1 else 0.0
-    return float(adjusted.mean()), float(stderr), float(b)
+    return float(adjusted.mean()), float(standard_error(adjusted)), float(b)
 
 
 def mc_price_asian_arithmetic_cv(S0, K, T, r, sigma, *, steps, n_paths, rng, option_type):
     """Price an arithmetic Asian option with the geometric Asian as control variate.
 
-    The geometric and arithmetic averages of the same path are highly
-    correlated, and the geometric Asian has a closed-form price
-    (``asian_geometric.price_geometric_asian``), so it serves as ``E[Y]``.
+    The geometric and arithmetic averages of the same path are highly correlated, and the
+    geometric Asian has a closed-form price (``asian_geometric.price_geometric_asian``) to use
+    as ``E[Y]``.
 
     Returns
     -------
     dict
-        Standard result dictionary built from the adjusted samples. ``extra``
-        holds ``variance_reduction="control_variate"``, ``cv_beta`` (the
-        fitted ``b``) and ``geo_asian_price`` (the closed-form control mean).
+        The result dictionary for the adjusted samples. ``extra`` holds
+        ``variance_reduction="control_variate"``, ``cv_beta`` (the fitted ``b``) and
+        ``geo_asian_price`` (the closed-form control mean).
     """
     option_type = normalise_option_type(option_type)
     paths = simulate_gbm_paths(S0, T, r, sigma, steps=steps, n_paths=n_paths, rng=rng)

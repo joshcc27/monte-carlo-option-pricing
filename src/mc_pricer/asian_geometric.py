@@ -1,28 +1,27 @@
-"""Closed-form pricing for discretely monitored geometric-average Asian options.
+"""Closed-form price of a discretely monitored geometric-average Asian option.
 
-Under GBM the log of the geometric average of prices observed at times
-``t_1, ..., t_n`` is normal, so the option has a Black-Scholes-type price.
-With ``G = (prod_i S(t_i))^(1/n)``:
+Under GBM the log of the geometric average of prices observed at ``t_1, ..., t_n`` is normal,
+so the option has a Black-Scholes-type price. With ``G = (prod_i S(t_i))^(1/n)``:
 
     log G ~ N(log S0 + mu_g, sigma_g^2)
     mu_g      = (r - sigma^2 / 2) * mean(t_i)
     sigma_g^2 = sigma^2 / n^2 * sum_i sum_j min(t_i, t_j)
 
-For ``n = 1`` and ``t_1 = T`` this is the Black-Scholes price of a European
-option. The arithmetic-average pricer uses this price as a control variate.
+For ``n = 1`` and ``t_1 = T`` this is the Black-Scholes price of a European option. The
+arithmetic Asian pricer uses this price as its control variate mean.
 """
 
 import numpy as np
 from scipy.stats import norm
 
-from .validation import normalise_option_type, validate_non_empty_1d_array, validate_positive
+from .validation import normalise_option_type, validate_positive
 
 
 def monitoring_times(T, steps):
-    """Return ``steps`` equally spaced monitoring times ``[T/steps, ..., T]``.
+    """Return the ``steps`` equally spaced monitoring times ``T/steps, ..., T``.
 
-    ``t = 0`` is excluded, matching the averaging convention in
-    ``payoffs.asian_arithmetic_payoff`` (columns ``1:`` of the path matrix).
+    ``t = 0`` is left out, matching the average in ``payoffs.asian_arithmetic_payoff``
+    (columns ``1:`` of the path matrix).
     """
     times = np.linspace(0.0, T, steps + 1)
     return times[1:]
@@ -31,8 +30,8 @@ def monitoring_times(T, steps):
 def _sum_pairwise_min(times):
     """Return ``sum_i sum_j min(t_i, t_j)`` in O(n log n).
 
-    After sorting, ``t_(k)`` is the minimum in ``2 * (n - k) + 1`` ordered
-    pairs (k = 1..n), so the double sum collapses to a weighted single sum.
+    After sorting, ``t_(k)`` is the minimum in ``2 * (n - k) + 1`` ordered pairs (k = 1..n),
+    so the double sum collapses to a weighted single sum.
     """
     t = np.sort(times)
     n = t.size
@@ -43,21 +42,11 @@ def _sum_pairwise_min(times):
 def geometric_parameters(times, r, sigma):
     """Return ``(mu_g, sigma_g)`` with ``log(G) ~ N(log(S0) + mu_g, sigma_g^2)``.
 
-    Parameters
-    ----------
-    times : array-like
-        Monitoring times, a non-empty 1D array with all ``t_i > 0``.
-    r : float
-        Continuously compounded risk-free rate.
-    sigma : float
-        Volatility (annualised, decimal).
-
-    Raises
-    ------
-    ValueError
-        If ``times`` is not a non-empty 1D array of positive values.
+    ``times`` are the monitoring times, a non-empty 1D array of positive values.
     """
-    times = validate_non_empty_1d_array(times, "times")
+    times = np.asarray(times, dtype=float)
+    if times.ndim != 1 or times.size == 0:
+        raise ValueError("times must be a non-empty 1D array")
     if np.any(times <= 0):
         raise ValueError("monitoring times must be positive")
 
@@ -70,28 +59,8 @@ def geometric_parameters(times, r, sigma):
 def price_geometric_asian(S0, K, T, r, sigma, *, steps, option_type):
     """Return the closed-form price of a geometric-average Asian call or put.
 
-    The average is taken over ``steps`` equally spaced dates ``T/steps, ..., T``
-    (``S0`` itself is not included). The payoff is paid at ``T``.
-
-    Parameters
-    ----------
-    S0, K : float
-        Spot and strike.
-    T : float
-        Maturity in years.
-    r : float
-        Continuously compounded risk-free rate.
-    sigma : float
-        Volatility (annualised, decimal).
-    steps : int
-        Number of monitoring dates.
-    option_type : str
-        ``"call"`` or ``"put"`` (case-insensitive).
-
-    Returns
-    -------
-    float
-        Present value of the option.
+    The average is taken over the ``steps`` equally spaced dates ``T/steps, ..., T``, without
+    ``S0``, and the payoff is paid at ``T``.
     """
     validate_positive(S0, "S0")
     validate_positive(K, "K")

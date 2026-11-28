@@ -15,13 +15,13 @@ from app_common import (
 )
 from mc_pricer.bs_analytics import bs_down_and_out_call, bs_price
 from mc_pricer.gbm import simulate_gbm_paths
-from mc_pricer.mc import (
+from mc_pricer.mc import mc_price_asian_arithmetic, mc_price_barrier, mc_price_european
+from mc_pricer.payoffs import (
+    asian_arithmetic_payoff,
     barrier_level_for_simulation,
-    mc_price_asian_arithmetic,
-    mc_price_barrier,
-    mc_price_european,
+    barrier_payoff,
+    european_payoff,
 )
-from mc_pricer.payoffs import asian_arithmetic_payoff, barrier_payoff, european_payoff
 from mc_pricer.rng import RNG
 from mc_pricer.variance_reduction import (
     mc_price_asian_arithmetic_antithetic,

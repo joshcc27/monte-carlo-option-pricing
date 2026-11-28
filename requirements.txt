@@ -1,2 +1,0 @@
-# Used by Streamlit Community Cloud if it installs from this file: the package and its dependencies.
-.

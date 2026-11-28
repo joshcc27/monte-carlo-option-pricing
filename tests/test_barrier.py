@@ -14,14 +14,8 @@ from mc_pricer.variance_reduction import (
     simulate_gbm_paths_antithetic,
 )
 
-# ---------------------------------------------------------------------------
-# barrier_payoff unit tests
-# ---------------------------------------------------------------------------
-
 
 def test_down_out_knocked_path_gets_zero_payoff():
-    # A path that dips below the barrier should receive zero payoff.
-    # Shape: (2 paths, 3 times including S0)
     paths = np.array(
         [
             [100.0, 80.0, 110.0],  # crosses barrier=90 → knocked out
@@ -31,8 +25,8 @@ def test_down_out_knocked_path_gets_zero_payoff():
     payoffs = barrier_payoff(
         paths, K=100.0, barrier=90.0, barrier_type="down_out", option_type="call"
     )
-    assert payoffs[0] == 0.0  # knocked out
-    assert payoffs[1] == pytest.approx(15.0)  # vanilla call payoff
+    assert payoffs[0] == 0.0
+    assert payoffs[1] == pytest.approx(15.0)
 
 
 def test_down_in_only_pays_when_crossed():
@@ -78,7 +72,7 @@ def test_up_in_only_pays_when_crossed():
 
 
 def test_knock_in_plus_knock_out_equals_vanilla():
-    # In-out parity: knock-in payoff + knock-out payoff = vanilla payoff (same paths).
+    # In-out parity on the same paths: knock-in + knock-out = vanilla.
     rng = RNG(seed=42)
     paths = simulate_gbm_paths(
         S0=100.0, T=1.0, r=0.02, sigma=0.2, steps=64, n_paths=10_000, rng=rng
@@ -117,13 +111,8 @@ def test_barrier_payoff_rejects_single_column_path():
         )
 
 
-# ---------------------------------------------------------------------------
-# mc_price_barrier integration tests
-# ---------------------------------------------------------------------------
-
-
-def test_mc_price_barrier_result_schema(make_rng):
-    rng = make_rng(1)
+def test_mc_price_barrier_result_schema():
+    rng = RNG(seed=1)
     paths = simulate_gbm_paths(
         S0=100.0, T=1.0, r=0.02, sigma=0.2, steps=32, n_paths=10_000, rng=rng
     )
@@ -148,10 +137,9 @@ def test_mc_price_barrier_rejects_non_2d_input():
         )
 
 
-def test_down_out_call_cheaper_than_vanilla(make_rng):
-    # A down-and-out call is strictly less valuable than a vanilla call
-    # (it can be knocked out, so it can only be worth less or equal).
-    rng = make_rng(7)
+def test_down_out_call_cheaper_than_vanilla():
+    # Knocking out can only remove payoff, so the barrier option is worth less.
+    rng = RNG(seed=7)
     paths = simulate_gbm_paths(
         S0=100.0, T=1.0, r=0.02, sigma=0.2, steps=64, n_paths=50_000, rng=rng
     )
@@ -162,10 +150,9 @@ def test_down_out_call_cheaper_than_vanilla(make_rng):
     assert barrier_result["price"] < vanilla["price"]
 
 
-def test_down_out_with_zero_barrier_matches_vanilla(make_rng):
-    # A barrier of 0 can never be breached under GBM, so the knock-out price
-    # should match the plain European price.
-    rng = make_rng(99)
+def test_down_out_with_zero_barrier_matches_vanilla():
+    # GBM prices stay positive, so a barrier at 0 is never hit.
+    rng = RNG(seed=99)
     paths = simulate_gbm_paths(
         S0=100.0, T=1.0, r=0.02, sigma=0.2, steps=16, n_paths=20_000, rng=rng
     )
@@ -176,10 +163,7 @@ def test_down_out_with_zero_barrier_matches_vanilla(make_rng):
     assert abs(barrier_result["price"] - vanilla["price"]) < 1e-10
 
 
-# ---------------------------------------------------------------------------
-# Continuous closed form and the Broadie-Glasserman-Kou correction
-# ---------------------------------------------------------------------------
-
+# The down-and-out call used by the remaining tests.
 S0, K, H, R, SIGMA, T = 100.0, 100.0, 90.0, 0.05, 0.2, 1.0
 
 
@@ -267,11 +251,6 @@ def test_continuity_correction_rejects_shift_across_spot():
             sigma=SIGMA,
             continuity_correction=True,
         )
-
-
-# ---------------------------------------------------------------------------
-# Antithetic barrier pricer
-# ---------------------------------------------------------------------------
 
 
 def test_barrier_antithetic_matches_manual_pair_mean_estimate():

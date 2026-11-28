@@ -67,16 +67,23 @@ The app can be deployed from Streamlit Community Cloud with `app.py` as the entr
 ## Library usage
 
 ```python
-from mc_pricer import RNG, bs_price, mc_price_asian_arithmetic_cv, mc_price_european, simulate_gbm_paths
+from mc_pricer import (
+    RNG,
+    bs_price,
+    mc_price_asian_arithmetic_cv,
+    mc_price_european,
+    simulate_gbm_paths,
+)
 
 S0, K, T, r, sigma = 100.0, 105.0, 1.0, 0.02, 0.2
 paths = simulate_gbm_paths(S0, T, r, sigma, steps=1, n_paths=200_000, rng=RNG(seed=42))
 print(mc_price_european(paths[:, -1], K, T, r, option_type="call"))  # price, stderr, ci_low, ...
 print(bs_price(S0, K, T, r, sigma, option_type="call"))
 
-print(mc_price_asian_arithmetic_cv(
+asian = mc_price_asian_arithmetic_cv(
     S0, K, T, r, sigma, steps=64, n_paths=100_000, rng=RNG(seed=1), option_type="call"
-))
+)
+print(asian)
 ```
 
 Every pricer returns the same dictionary: `price`, `stderr`, `ci_low`, `ci_high`, `n_paths` and `extra`. Market arguments always come first in the order `S0, K, T, r, sigma`, with the barrier level after `K` for barrier options. Functions that work on simulated paths take the paths in place of `S0`. Everything else (`steps`, `n_paths`, `rng`, `option_type` and so on) is keyword-only.
